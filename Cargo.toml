@@ -1,5 +1,5 @@
 [package]
-name = "CSHEL"
+name = "cshel"
 version = "0.1.0"
 authors = ["ben"]
 edition = "2018"
@@ -7,3 +7,6 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+clap = "3.0.0-beta.2"
+csv = "1.1.6"
+serde = { version="1.0.126", features = ["derive"]}
