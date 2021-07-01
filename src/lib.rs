@@ -19,7 +19,7 @@ struct PhaseTime{
     start_time: u64,
 }
 
-struct RIHists{
+pub struct RIHists{
     ri_hists: HashMap<i64,HashMap<i64,(u64,HashMap<i64,i64>)>>,
 }
 
@@ -48,7 +48,7 @@ impl RIHists {
 
 }
 
-fn build_phase_transitions(input_file:&String) -> Vec<(i64,i64)>{
+fn build_phase_transitions(input_file:&str) -> Vec<(i64,i64)>{
     println!("Reading input from: {}", input_file);
 
     let mut rdr = csv::ReaderBuilder::new()
@@ -98,8 +98,12 @@ fn binary_search(vector: &Vec<(i64,i64)>,value:i64) -> Option<(i64,i64)>{
 
     while max>=min{
         let guess = (max + min)/2;
-        if vector[guess].0==value{
-            return Some(vector[guess+1]);
+        if vector[guess].0==value{ //on transition sample
+            if guess < vector.len() - 1{
+                return Some(vector[guess+1]);
+            }
+            //transition of last phase
+            return None;
         }
 
         if vector[guess].0 < value{
@@ -147,13 +151,13 @@ fn process_sample(ri_hists: &mut HashMap<i64,HashMap<i64,(u64,HashMap<i64,i64>)>
         *ri_tuple.1.entry(next_phase_tuple.1).or_insert_with(|| 0)+=next_phase_cost;
     }
 
-    println!("{:?}",ri_hists);
+    //println!("{:?}",ri_hists);
 }
 //Build ri hists in the following form
 //{ref_id,
 //  {ri,
 //    (count,{phase_id,cost})}}
-fn build_ri_hists(input_file:&String){
+pub fn build_ri_hists(input_file:&str)-> RIHists{
     let phase_transitions = build_phase_transitions(input_file);
     let mut rdr = csv::ReaderBuilder::new()
         .has_headers(false)
@@ -174,6 +178,20 @@ fn build_ri_hists(input_file:&String){
             None => (time+1,0),
         };
         process_sample(&mut ri_hists,phase_id_ref,ri,time,next_phase_tuple);
+    }
+    RIHists::new(ri_hists)
+}
+
+pub fn print_ri_hists(rihists: &RIHists){
+    for (ref_id, ref_ri_hist) in &rihists.ri_hists{
+        println!("{}:",ref_id);
+        for (ri,tuple) in ref_ri_hist{
+            println!(" | ri {}: count {}",ri, tuple.0);
+            for (phase_id,cost) in &tuple.1{
+                println!(" | | phase {} cost {}",phase_id,cost);
+            }
+        }
+        //println!("{}: {:?}",ref_id,hashmap);
     }
 }
 
@@ -197,6 +215,7 @@ mod tests {
         assert_eq!(binary_search(&a,1024),Some((1025,1)));
         assert_eq!(binary_search(&a,2048),None);
         assert_eq!(binary_search(&a,-10),Some((0,0)));
+        assert_eq!(binary_search(&a,1025),None);
     }
 
     #[test]
@@ -219,5 +238,4 @@ mod tests {
         assert_eq!(hist_struct.get_ref_ri_phase_cost(1,12,0),2);
         assert_eq!(hist_struct.get_ref_ri_phase_cost(1,12,1),10);
     }
-
 }
