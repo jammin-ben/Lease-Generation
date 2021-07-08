@@ -3,8 +3,7 @@ use std::collections::BinaryHeap;
 use core::cmp::Ordering;
 //use csv::{ReaderBuilder};
 use serde::{Serialize, Deserialize};
-use std::fmt;
-use std::cmp;
+//use std::fmt;
 use std::u64;
 
 #[derive(Deserialize)]
@@ -172,7 +171,7 @@ fn process_sample(ri_hists: &mut HashMap<u64,HashMap<u64,(u64,HashMap<u64,u64>)>
 
     //increment costs
     let this_phase_cost= std::cmp::min(next_phase_tuple.0 - start_time,ri);
-    let next_phase_cost= std::cmp::max(time - next_phase_tuple.0,0);
+    let next_phase_cost= std::cmp::max(time as i64 - next_phase_tuple.0 as i64,0) as u64;
     *ri_tuple.1.entry(phase_id).or_insert_with(|| 0)+=this_phase_cost;
 
     if next_phase_cost>0 {
@@ -239,6 +238,10 @@ pub fn print_ri_hists(rihists: &RIHists){
 
 
 fn get_phase_ref_cost(phase: u64,ref_id: u64,old_lease: u64,new_lease: u64,ri_hists: &RIHists) -> u64 {
+
+    //putting this here for the compiler to not yell at me
+    println!("{} {} {} {}", phase,ref_id,old_lease,new_lease);
+    print_ri_hists(&ri_hists);
     0
 /*
   //TODO rewrite this function to account for head + tail costs
@@ -295,7 +298,7 @@ pub fn c_shel(ri_hists : &RIHists,
         leases.insert(ref_id,0);
     }
 
-    while true{
+    loop {
         new_lease = match ppuc_tree.pop(){
             Some(i) => i,
             None => return Some((leases,dual_leases)),
@@ -315,7 +318,7 @@ pub fn c_shel(ri_hists : &RIHists,
         let mut acceptable_lease = true;
         for (&phase,&current_cost) in cost_per_phase.iter(){
             let new_cost = get_phase_ref_cost(phase,new_lease.ref_id,old_lease,new_lease.lease,&ri_hists);
-            if (new_cost + *cost_per_phase.get(&phase).unwrap()) > *budget_per_phase.get(&phase).unwrap() {
+            if (new_cost + current_cost) > *budget_per_phase.get(&phase).unwrap() {
                 acceptable_lease = false;
                 break;
             }
@@ -342,7 +345,7 @@ pub fn c_shel(ri_hists : &RIHists,
             for (&phase,&current_cost) in cost_per_phase.iter(){
                 alpha = float_min(alpha,
                                   get_phase_ref_cost(phase,new_lease.ref_id,old_lease,new_lease.lease,&ri_hists) as f32/
-                                 (*budget_per_phase.get(&phase).unwrap() - *cost_per_phase.get(&phase).unwrap()) as f32)
+                                 (*budget_per_phase.get(&phase).unwrap() - current_cost) as f32);
             }
 
             //update cache use
@@ -357,7 +360,7 @@ pub fn c_shel(ri_hists : &RIHists,
             dual_leases.insert(new_lease.ref_id,(alpha,new_lease.lease));
         }
     }
-    None
+    //None
 }
 
 fn float_min(a: f32, b:f32) -> f32{
@@ -423,7 +426,6 @@ mod tests {
         assert_eq!(binary_search(&a,120),Some((288,0)));
         assert_eq!(binary_search(&a,1024),Some((1025,1)));
         assert_eq!(binary_search(&a,2048),None);
-        assert_eq!(binary_search(&a,-10),Some((0,0)));
         assert_eq!(binary_search(&a,1025),None);
     }
 

@@ -1,9 +1,4 @@
 use clap::{Arg, App};
-use std::collections::HashMap;
-use csv::{ReaderBuilder};
-use serde::{Serialize, Deserialize};
-use std::fmt;
-use std::i64;
 use cshel;
 
 fn main(){
@@ -22,5 +17,7 @@ fn main(){
             .about("Sets the output file name"))
         .get_matches();
 
-    let ri_hists = cshel::build_ri_hists(matches.value_of("INPUT").unwrap());
+    let (ri_hists,_samples_per_phase) = cshel::build_ri_hists(matches.value_of("INPUT").unwrap());
+
+    cshel::print_ri_hists(&ri_hists);
 }
