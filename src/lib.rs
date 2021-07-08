@@ -22,17 +22,17 @@ struct PhaseTime{
 }
 
 pub struct RIHists{
-    ri_hists: HashMap<u64,HashMap<u64,(u64,HashMap<u64,u64>)>>,
+    ri_hists: HashMap<u64,HashMap<u64,(u64,HashMap<u64,(u64,u64)>)>>,
 }
 
 impl RIHists {
-    pub fn new(ri_hists_input: HashMap<u64,HashMap<u64,(u64,HashMap<u64,u64>)>>) -> Self{
+    pub fn new(ri_hists_input: HashMap<u64,HashMap<u64,(u64,HashMap<u64,(u64,u64)>)>>) -> Self{
         RIHists{
             ri_hists: ri_hists_input, 
         }
     }
 
-    pub fn get_ref_hist(&self,ref_id: u64) -> &HashMap<u64,(u64,HashMap<u64,u64>)>{
+    pub fn get_ref_hist(&self,ref_id: u64) -> &HashMap<u64,(u64,HashMap<u64,(u64,u64)>)>{
         return self.ri_hists.get(&ref_id).unwrap();
     }
 
@@ -40,14 +40,13 @@ impl RIHists {
         return self.ri_hists.get(&ref_id).unwrap().get(&ri).unwrap().0;
     }
 
-    pub fn get_ref_ri_cost(&self,ref_id: u64,ri:u64) -> &HashMap<u64,u64> {
+    pub fn get_ref_ri_cost(&self,ref_id: u64,ri:u64) -> &HashMap<u64,(u64,u64)> {
         return &self.ri_hists.get(&ref_id).unwrap().get(&ri).unwrap().1;
     }
 
-    pub fn get_ref_ri_phase_cost(&self,ref_id: u64, ri:u64, phase: u64) -> u64 {
+    pub fn get_ref_ri_phase_cost(&self,ref_id: u64, ri:u64, phase: u64) -> (u64,u64) {
         return *self.ri_hists.get(&ref_id).unwrap().get(&ri).unwrap().1.get(&phase).unwrap();
     }
-
 }
 
 #[derive(Debug,Copy,Clone)]
@@ -153,7 +152,7 @@ fn binary_search(vector: &Vec<(u64,u64)>,value:u64) -> Option<(u64,u64)>{
     Some(vector[min])
 }
 
-fn process_sample(ri_hists: &mut HashMap<u64,HashMap<u64,(u64,HashMap<u64,u64>)>>,
+fn process_sample_head_cost(ri_hists: &mut HashMap<u64,HashMap<u64,(u64,HashMap<u64,(u64,u64)>)>>,
                   phase_id_ref: u64,
                   ri: u64,
                   time: u64,
@@ -163,21 +162,18 @@ fn process_sample(ri_hists: &mut HashMap<u64,HashMap<u64,(u64,HashMap<u64,u64>)>
     let start_time = time - ri;
 
     //increment count
-    //let ref_hist = ri_hists.get(&phase_id_ref).or_else(|| Some(&Box::new(HashMap::new()))).unwrap();
-    //let ri_tuple = ref_hist.get(&ri).or_else(|| Some(&(0,HashMap::new()))).unwrap();
     let ref_hist = ri_hists.entry(phase_id_ref).or_insert_with(|| HashMap::new());
     let ri_tuple = ref_hist.entry(ri).or_insert_with(|| (0,HashMap::new()));
-    ri_tuple.0 +=1;
+    ri_tuple.0  += 1;
 
-    //increment costs
-    let this_phase_cost= std::cmp::min(next_phase_tuple.0 - start_time,ri);
-    let next_phase_cost= std::cmp::max(time as i64 - next_phase_tuple.0 as i64,0) as u64;
-    *ri_tuple.1.entry(phase_id).or_insert_with(|| 0)+=this_phase_cost;
+    //increment head costs
+    let this_phase_head_cost= std::cmp::min(next_phase_tuple.0 - start_time,ri);
+    let next_phase_head_cost= std::cmp::max(time as i64 - next_phase_tuple.0 as i64,0) as u64;
+    ri_tuple.1.entry(phase_id).or_insert_with(|| (0,0)).0 += this_phase_head_cost;
 
-    if next_phase_cost>0 {
-        *ri_tuple.1.entry(next_phase_tuple.1).or_insert_with(|| 0)+=next_phase_cost;
+    if next_phase_head_cost>0 {
+        ri_tuple.1.entry(next_phase_tuple.1).or_insert_with(|| (0,0)).0 += next_phase_head_cost;
     }
-
 }
 
 //Build ri hists in the following form
@@ -215,7 +211,7 @@ pub fn build_ri_hists(input_file:&str)-> (RIHists,HashMap<u64,u64>){
             None => (time+1,0),
         };
 
-        process_sample(&mut ri_hists,phase_id_ref,ri,time,next_phase_tuple);
+        process_sample_head_cost(&mut ri_hists,phase_id_ref,ri,time,next_phase_tuple);
 
         let phase_id = (phase_id_ref & 0xFF000000)>>24;
         *samples_per_phase.entry(phase_id).or_insert_with(|| 0)+=1;
@@ -230,7 +226,7 @@ pub fn print_ri_hists(rihists: &RIHists){
         for (ri,tuple) in ref_ri_hist{
             println!(" | ri {}: count {}",ri, tuple.0);
             for (phase_id,cost) in &tuple.1{
-                println!(" | | phase {} cost {}",phase_id,cost);
+                println!(" | | phase {} head_cost {} tail_cost {}",phase_id,cost.0,cost.1);
             }
         }
     }
@@ -372,7 +368,7 @@ fn float_min(a: f32, b:f32) -> f32{
 
 fn get_ppuc(ref_id: u64, 
             base_lease: u64, 
-            ref_ri_hist: &HashMap<u64,(u64,HashMap<u64,u64>)>) -> Vec<PPUC>{
+            ref_ri_hist: &HashMap<u64,(u64,HashMap<u64,(u64,u64)>)>) -> Vec<PPUC>{
 
     let ri_hist: Vec<(u64,u64)> = ref_ri_hist.iter().map(|(k,v)|(*k,v.0)).collect();
     let total_count = ri_hist.iter().fold(0,|acc,(_k,v)| acc+v);
@@ -430,25 +426,25 @@ mod tests {
     }
 
     #[test]
-    fn test_process_sample(){
+    fn test_process_sample_head_cost(){
         let mut ri_hists = HashMap::new();
-        process_sample(&mut ri_hists,1,12,20,(100000,1));
+        process_sample_head_cost(&mut ri_hists,1,12,20,(100000,1));
         let hist_struct = RIHists::new(ri_hists);
 
         assert_eq!(hist_struct.get_ref_ri_count(1,12),1);
-        assert_eq!(hist_struct.get_ref_ri_phase_cost(1,12,0),12);
+        assert_eq!(hist_struct.get_ref_ri_phase_cost(1,12,0),(12,0));
 
     }
     #[test]
     fn test_cross_phase_cost(){
 
         let mut ri_hists = HashMap::new();
-        process_sample(&mut ri_hists,1,12,20,(10,1)); //reference 1, phase 0
+        process_sample_head_cost(&mut ri_hists,1,12,20,(10,1)); //reference 1, phase 0
         let hist_struct = RIHists::new(ri_hists);
 
         assert_eq!(hist_struct.get_ref_ri_count(1,12),1);
-        assert_eq!(hist_struct.get_ref_ri_phase_cost(1,12,0),2);
-        assert_eq!(hist_struct.get_ref_ri_phase_cost(1,12,1),10);
+        assert_eq!(hist_struct.get_ref_ri_phase_cost(1,12,0),(2,0));
+        assert_eq!(hist_struct.get_ref_ri_phase_cost(1,12,1),(10,0));
     }
 
     #[test]
