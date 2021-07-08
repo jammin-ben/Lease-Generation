@@ -22,11 +22,5 @@ fn main(){
             .about("Sets the output file name"))
         .get_matches();
 
-
-
     let ri_hists = cshel::build_ri_hists(matches.value_of("INPUT").unwrap());
- 
-    cshel::print_ri_hists(&ri_hists);
-    
-
 }
