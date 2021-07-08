@@ -176,6 +176,44 @@ fn process_sample_head_cost(ri_hists: &mut HashMap<u64,HashMap<u64,(u64,HashMap<
     }
 }
 
+fn process_sample_tail_cost(ri_hists: &mut HashMap<u64,HashMap<u64,(u64,HashMap<u64,(u64,u64)>)>>,
+                  phase_id_ref: u64,
+                  ri: u64,
+                  time: u64,
+                  next_phase_tuple: (u64,u64)){
+
+    let phase_id = (phase_id_ref & 0xFF000000)>>24;
+    let start_time = time - ri;
+
+    let ref_hist = ri_hists.entry(phase_id_ref).or_insert_with(|| HashMap::new());
+
+    //this heinous code exists so we can iterate through a hashmap while modifying it
+    let ris : Vec<&u64> = ref_hist.keys().collect();
+    let mut ris_keys :Vec<u64> = Vec::new();
+    for ri_other in ris{
+        ris_keys.push(*ri_other);
+    }
+
+    //increment tail costs
+    for ri_other in ris_keys {
+
+        //no tail cost if the other ri is greater
+        if ri_other >= ri {
+            continue;
+        }
+        let count_phase_cost_tuple = ref_hist.entry(ri_other).or_insert_with(|| (0,HashMap::new()));
+
+        let this_phase_tail_cost = std::cmp::min(next_phase_tuple.0 - start_time, ri_other);
+        let next_phase_tail_cost = std::cmp::max(0,start_time as i64 + ri_other as i64 - next_phase_tuple.0 as i64) as u64;
+
+        count_phase_cost_tuple.1.entry(phase_id).or_insert_with(|| (0,0)).1 += this_phase_tail_cost;
+
+        if next_phase_tail_cost > 0 {
+            count_phase_cost_tuple.1.entry(next_phase_tuple.1).or_insert_with(|| (0,0)).1 += next_phase_tail_cost;
+        }
+    }
+}
+
 //Build ri hists in the following form
 //{ref_id,
 //  {ri,
@@ -201,6 +239,7 @@ pub fn build_ri_hists(input_file:&str)-> (RIHists,HashMap<u64,u64>){
     let mut ri_hists = HashMap::new();
     let mut samples_per_phase = HashMap::new();
 
+    //first pass for head costs
     for result in rdr.deserialize() {
         let sample: Sample = result.unwrap();
         let ri = u64::from_str_radix(&sample.ri,16).unwrap();
@@ -215,6 +254,19 @@ pub fn build_ri_hists(input_file:&str)-> (RIHists,HashMap<u64,u64>){
 
         let phase_id = (phase_id_ref & 0xFF000000)>>24;
         *samples_per_phase.entry(phase_id).or_insert_with(|| 0)+=1;
+    }
+
+    //second pass for tail costs
+    for result in rdr.deserialize() {
+        let sample: Sample = result.unwrap();
+        let ri = u64::from_str_radix(&sample.ri,16).unwrap();
+        let time = sample.time;
+        let phase_id_ref = u64::from_str_radix(&sample.phase_id_ref,16).unwrap();
+        let next_phase_tuple = match binary_search(&phase_transitions,time-ri){
+            Some(v) => v,
+            None => (time+1,0),
+        };
+        process_sample_tail_cost(&mut ri_hists,phase_id_ref,ri,time,next_phase_tuple);
     }
 
     (RIHists::new(ri_hists),samples_per_phase)
