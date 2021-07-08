@@ -487,8 +487,9 @@ mod tests {
         assert_eq!(hist_struct.get_ref_ri_phase_cost(1,12,0),(12,0));
 
     }
+
     #[test]
-    fn test_cross_phase_cost(){
+    fn test_cross_phase_head_cost(){
 
         let mut ri_hists = HashMap::new();
         process_sample_head_cost(&mut ri_hists,1,12,20,(10,1)); //reference 1, phase 0
@@ -509,5 +510,47 @@ mod tests {
         ri_hist.insert(19,(3,HashMap::new()));
         let ppucs = get_ppuc(1,0,&ri_hist);
         println!("{:?}",ppucs);//According to Asplos19, the numbers are [.02,.11,.08,.09];
+    }
+
+
+    #[test]
+    fn test_process_sample_tail_cost(){
+        let mut ri_hists = HashMap::new();
+        let ri_short = 10;
+        let ri_long = 100;
+        let ri_very_long = 1000;
+        process_sample_head_cost(&mut ri_hists,1,ri_short,10,(10000,1));
+        process_sample_head_cost(&mut ri_hists,1,ri_short,20,(10000,1));
+        process_sample_head_cost(&mut ri_hists,1,ri_long,200,(10000,1));
+        process_sample_head_cost(&mut ri_hists,1,ri_very_long,2200,(10000,1));
+
+        process_sample_tail_cost(&mut ri_hists,1,ri_short,10,(10000,1));
+        process_sample_tail_cost(&mut ri_hists,1,ri_short,20,(10000,1));
+        process_sample_tail_cost(&mut ri_hists,1,ri_long,200,(10000,1));
+        process_sample_tail_cost(&mut ri_hists,1,ri_very_long,2200,(10000,1));
+
+        let hist_struct = RIHists::new(ri_hists);
+
+       // print_ri_hists(&hist_struct);
+        assert_eq!(hist_struct.get_ref_ri_phase_cost(1,ri_short,0).1,20);
+        assert_eq!(hist_struct.get_ref_ri_phase_cost(1,ri_long,0).1,100);
+        assert_eq!(hist_struct.get_ref_ri_phase_cost(1,ri_very_long,0).1,0);
+
+    }
+
+    #[test]
+    fn tail_cost_cross_phase(){
+        let mut ri_hists = HashMap::new();
+        process_sample_head_cost(&mut ri_hists,1,100,170,(100,1));
+        process_sample_head_cost(&mut ri_hists,1,50,120,(100,1));
+
+        process_sample_tail_cost(&mut ri_hists,1,100,170,(100,1));
+        process_sample_tail_cost(&mut ri_hists,1,50,120,(100,1));
+
+        let hist_struct = RIHists::new(ri_hists);
+
+        print_ri_hists(&hist_struct);
+        assert_eq!(hist_struct.get_ref_ri_phase_cost(1,50,0).1,30);
+        assert_eq!(hist_struct.get_ref_ri_phase_cost(1,50,1).1,20);
     }
 }
