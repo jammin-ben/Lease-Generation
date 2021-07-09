@@ -188,7 +188,7 @@ fn process_sample_tail_cost(ri_hists: &mut HashMap<u64,HashMap<u64,(u64,HashMap<
     let ref_hist = ri_hists.entry(phase_id_ref).or_insert_with(|| HashMap::new());
 
     //this heinous code exists so we can iterate through a hashmap while modifying it
-    let ris : Vec<&u64> = ref_hist.keys().collect();
+    let ris: Vec<&u64> = ref_hist.keys().collect();
     let mut ris_keys :Vec<u64> = Vec::new();
     for ri_other in ris{
         ris_keys.push(*ri_other);
@@ -217,18 +217,13 @@ fn process_sample_tail_cost(ri_hists: &mut HashMap<u64,HashMap<u64,(u64,HashMap<
 //Build ri hists in the following form
 //{ref_id,
 //  {ri,
-//    (count,{phase_id,cost})}}
-
-//TODO: update this function to accumulate tail costs and return the form:
-//{ref_id,
-//  {ri,
 //    (count,{phase_id,(head_cost,tail_cost)})}}
 //
-// Semantically, head cost refers to the accumulation of cost from reuses with length ri which span 
+// Head cost refers to the accumulation of cost from reuses with length ri, which may span 
 // phase boundaries.
 //
-// Tail cost refers to the accumulation of cost from reuses greater than ri, whose lease spans a
-// phase boundary at l=ri
+// Tail cost refers to the accumulation of cost from reuses greater than ri.
+// This cost may span a phase boundary 
 pub fn build_ri_hists(input_file:&str)-> (RIHists,HashMap<u64,u64>){
     let phase_transitions = build_phase_transitions(input_file);
     let mut rdr = csv::ReaderBuilder::new()
@@ -286,30 +281,31 @@ pub fn print_ri_hists(rihists: &RIHists){
 
 
 fn get_phase_ref_cost(phase: u64,ref_id: u64,old_lease: u64,new_lease: u64,ri_hists: &RIHists) -> u64 {
-
-    //putting this here for the compiler to not yell at me
-    println!("{} {} {} {}", phase,ref_id,old_lease,new_lease);
-    print_ri_hists(&ri_hists);
-    0
-/*
-  //TODO rewrite this function to account for head + tail costs
-    let mut lease_cost_table = HashMap::new();
-    lease_cost_table.insert(0,0);
-    let mut total_count = 0;
-
+    let mut old_cost = 0;
+    let mut new_cost = 0;
     let ri_hist = ri_hists.ri_hists.get(&ref_id).unwrap();
-    let mut ri_hist_clone = ri_hist.clone();
 
-    let head_cost = 0;
-    ri_hist_clone.sort_by(|a,b| a.0.cmp(&b.0));
-    for (&ri,&count) in ri_hist_clone.iter(){
-        head_cost += count *  ri;
-        let tail_cost = (total_count - hits) * ri;
-        lease_cost_table.insert(ri, head_cost + tail_cost);
+    for (&ri,(_,phase_cost_hashmap)) in ri_hist.iter(){
+        let (phase_head_cost,phase_tail_cost) = match phase_cost_hashmap.get(&phase) {
+            Some((a,b)) => (*a,*b),
+            None        => (0,0), 
+        };
+
+        if ri < old_lease{
+            old_cost += phase_head_cost;
+        }
+        else {
+            old_cost += phase_tail_cost;
+        }
+
+        if ri < new_lease{
+            new_cost += phase_head_cost;
+        }
+        else {
+            new_cost += phase_tail_cost;
+        }
     }
-
-    lease_cost_table.get(&new_lease).unwrap()-lease_cost_table.get(&old_lease).unwrap()
-*/
+    new_cost - old_cost
 }
 
 pub fn c_shel(ri_hists : &RIHists, 
@@ -365,7 +361,11 @@ pub fn c_shel(ri_hists : &RIHists,
         //check for capacity
         let mut acceptable_lease = true;
         for (&phase,&current_cost) in cost_per_phase.iter(){
-            let new_cost = get_phase_ref_cost(phase,new_lease.ref_id,old_lease,new_lease.lease,&ri_hists);
+            let new_cost = get_phase_ref_cost(phase,
+                                              new_lease.ref_id,
+                                              old_lease,
+                                              new_lease.lease,
+                                              &ri_hists);
             if (new_cost + current_cost) > *budget_per_phase.get(&phase).unwrap() {
                 acceptable_lease = false;
                 break;
@@ -375,13 +375,23 @@ pub fn c_shel(ri_hists : &RIHists,
         if acceptable_lease {
             //update cache use
             for phase in &phase_ids{
-                cost_per_phase.insert(**phase, cost_per_phase.get(*phase).unwrap() + get_phase_ref_cost(**phase,new_lease.ref_id,old_lease,new_lease.lease,&ri_hists));
+                cost_per_phase.insert(**phase, 
+                                      cost_per_phase.get(*phase).unwrap() + 
+                                        get_phase_ref_cost(**phase,
+                                                           new_lease.ref_id,
+                                                           old_lease,
+                                                           new_lease.lease,
+                                                           &ri_hists));
             }
+
             //update leases
             leases.insert(new_lease.ref_id,new_lease.lease);
 
             //push new ppucs
-            let ppuc_vec = get_ppuc(new_lease.ref_id,new_lease.lease,ri_hists.ri_hists.get(&new_lease.ref_id).unwrap());
+            let ppuc_vec = get_ppuc(new_lease.ref_id,
+                                    new_lease.lease,
+                                    ri_hists.ri_hists.get(&new_lease.ref_id).unwrap());
+
             for ppuc in ppuc_vec.iter(){
                 ppuc_tree.push(*ppuc);
             }
@@ -392,7 +402,11 @@ pub fn c_shel(ri_hists : &RIHists,
             let mut alpha = 1.0;
             for (&phase,&current_cost) in cost_per_phase.iter(){
                 alpha = float_min(alpha,
-                                  get_phase_ref_cost(phase,new_lease.ref_id,old_lease,new_lease.lease,&ri_hists) as f32/
+                                  get_phase_ref_cost(phase,
+                                                     new_lease.ref_id,
+                                                     old_lease,
+                                                     new_lease.lease,
+                                                     &ri_hists) as f32 /
                                  (*budget_per_phase.get(&phase).unwrap() - current_cost) as f32);
             }
 
@@ -400,7 +414,11 @@ pub fn c_shel(ri_hists : &RIHists,
             for phase in &phase_ids{
                 cost_per_phase.insert(**phase, 
                                       cost_per_phase.get(*phase).unwrap() + 
-                                         (get_phase_ref_cost(**phase,new_lease.ref_id,old_lease,new_lease.lease,&ri_hists) 
+                                         (get_phase_ref_cost(**phase,
+                                                             new_lease.ref_id,
+                                                             old_lease,
+                                                             new_lease.lease,
+                                                             &ri_hists) 
                                             as f32 * alpha).round() as u64);
             }
 
