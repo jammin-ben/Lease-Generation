@@ -17,7 +17,12 @@ fn main(){
             .about("Sets the output file name"))
         .get_matches();
 
-    let (ri_hists,_samples_per_phase) = cshel::build_ri_hists(matches.value_of("INPUT").unwrap());
+    let cache_size = 1;
+    let sample_rate = 256;
 
-    cshel::print_ri_hists(&ri_hists);
+    let (ri_hists,samples_per_phase) = cshel::build_ri_hists(matches.value_of("INPUT").unwrap());
+    let (leases, dual_leases) = cshel::gen_leases_c_shel(&ri_hists,cache_size,sample_rate,samples_per_phase,true).unwrap();
+    cshel::dump_leases(leases,dual_leases);
+
+
 }
