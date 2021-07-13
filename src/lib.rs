@@ -56,11 +56,18 @@ pub struct PPUC {
     old_lease: u64,
     ref_id: u64,
 }
-impl PartialOrd for PPUC {
+/*impl PartialOrd for PPUC {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering>{
         other.ppuc.partial_cmp(&self.ppuc)
     }
+}*/
+
+impl PartialOrd for PPUC {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering>{
+        self.ppuc.partial_cmp(&other.ppuc)
+    }
 }
+
 impl Ord for PPUC {
     fn cmp(&self, other: &Self) -> Ordering {
         other.ppuc.partial_cmp(&self.ppuc).unwrap()
@@ -284,7 +291,6 @@ pub fn print_ri_hists(rihists: &RIHists){
     }
 }
 
-
 fn get_phase_ref_cost(sample_rate: u64, phase: u64,ref_id: u64,old_lease: u64,new_lease: u64,ri_hists: &RIHists) -> u64 {
     let mut old_cost = 0;
     let mut new_cost = 0;
@@ -296,39 +302,64 @@ fn get_phase_ref_cost(sample_rate: u64, phase: u64,ref_id: u64,old_lease: u64,ne
             None        => (0,0), 
         };
 
-        if ri <= old_lease{
+        if ri <= old_lease {
             old_cost += phase_head_cost * sample_rate;
         }
-        else {
+        if ri == old_lease {
             old_cost += phase_tail_cost * sample_rate;
         }
 
-        if ri <= new_lease{
+        if ri <= new_lease {
             new_cost += phase_head_cost * sample_rate;
         }
-        else {
+        if ri == new_lease {
             new_cost += phase_tail_cost * sample_rate;
         }
     }
-    println!("
 
-             newcost{} oldcost{} ",new_cost, old_cost);
+    println!("
+             phase {} 
+             new lease {} 
+             old lease {}
+             newcost {} 
+             oldcost {} ", phase, new_lease, old_lease, new_cost, old_cost);
+
+    if new_cost < old_cost{
+        for (ri,tuple) in ri_hist{
+            println!(" | ri {}: count {}",ri, tuple.0);
+            for (phase_id,cost) in &tuple.1{
+                println!(" | | phase {} head_cost {} tail_cost {}",phase_id,cost.0,cost.1);
+            }
+        }
+        panic!();
+    }
     new_cost - old_cost
 }
 
 pub fn dump_leases(leases: HashMap<u64,u64>, dual_leases: HashMap<u64,(f32,u64)>) {
-    for (&address,&lease) in leases.iter(){
-        if dual_leases.contains_key(&address){
-            println!("0, {}, {}, {}, {}", address, 
+    for (&phase_address,&lease) in leases.iter(){
+        let phase   = (phase_address & 0xFF000000)>>24;
+        let address =  phase_address & 0x00FFFFFF;
+        if dual_leases.contains_key(&phase_address){
+            println!("{:x}, {:x}, {:x}, {:x}, {}", 
+                     phase,
+                     address, 
                      lease, 
-                     dual_leases.get(&address).unwrap().1, 
-                     dual_leases.get(&address).unwrap().0);
+                     dual_leases.get(&phase_address).unwrap().1, 
+                     1.0 - dual_leases.get(&phase_address).unwrap().0);
         }
         else{
-            println!("0, {}, {}, 0, 1", 
+            println!("{:x}, {:x}, {:x}, 0, 1", 
+                     phase,
                      address, 
                      lease);
         }
+    }
+}
+
+pub fn destructive_print_ppuc_tree(ppuc_tree: &mut BinaryHeap<PPUC>){
+    while ppuc_tree.peek() != None{
+        println!("ppuc: {:?}",ppuc_tree.pop().unwrap());
     }
 }
 
@@ -362,6 +393,10 @@ pub fn gen_leases_c_shel(ri_hists : &RIHists,
             ppuc_tree.push(*ppuc);
         }
     }
+
+    //if verbose {
+     //   destructive_print_ppuc_tree(&mut ppuc_tree);
+   // }
 
     //initialize cost + budget
     for (&phase,&num) in samples_per_phase.iter(){
@@ -398,10 +433,14 @@ pub fn gen_leases_c_shel(ri_hists : &RIHists,
             continue;
         }
 
-
         let old_lease = *leases.get(&new_lease.ref_id).unwrap();
         //check for capacity
         let mut acceptable_lease = true;
+
+        let mut new_phase_ref_cost = HashMap::new(); 
+
+        println!("Debug: COST_PER_PHASE: {:?}",&cost_per_phase);
+        
         for (&phase,&current_cost) in cost_per_phase.iter(){
             let new_cost = get_phase_ref_cost(sample_rate,
                                               phase,
@@ -409,23 +448,19 @@ pub fn gen_leases_c_shel(ri_hists : &RIHists,
                                               old_lease,
                                               new_lease.lease,
                                               &ri_hists);
+            new_phase_ref_cost.insert(phase,new_cost);
             if (new_cost + current_cost) > *budget_per_phase.get(&phase).unwrap() {
                 acceptable_lease = false;
-                break;
             }
         }
+        println!("Debug: NEW_PHASE_REF_COST {:?}",&new_phase_ref_cost);
 
         if acceptable_lease {
             //update cache use
+            
             for phase in &phase_ids{
                 cost_per_phase.insert(**phase, 
-                                      cost_per_phase.get(*phase).unwrap() + 
-                                        get_phase_ref_cost(sample_rate,
-                                                           **phase,
-                                                           new_lease.ref_id,
-                                                           old_lease,
-                                                           new_lease.lease,
-                                                           &ri_hists));
+                                      cost_per_phase.get(*phase).unwrap() + new_phase_ref_cost.get(phase).unwrap()); 
             }
 
             //update leases
@@ -441,7 +476,7 @@ pub fn gen_leases_c_shel(ri_hists : &RIHists,
             }
 
             if verbose {
-                println!("0-0-0-0-0-0-0-0-0");
+                println!("0---------New Lease Assigned------------0");
                 println!("Assigned lease {} to reference {}", new_lease.lease, new_lease.ref_id);
                 println!("Cost per phase: {:?}", &cost_per_phase);
                 println!("Budget per phase: {:?}", &budget_per_phase);
@@ -450,40 +485,79 @@ pub fn gen_leases_c_shel(ri_hists : &RIHists,
 
         else {
             //unacceptable lease, must assign a dual lease
+            println!("Debug: assigning dual lease");
             let mut alpha = 1.0;
             for (&phase,&current_cost) in cost_per_phase.iter(){
-                alpha = float_min(alpha,
-                                  get_phase_ref_cost(sample_rate,
-                                                     phase,
-                                                     new_lease.ref_id,
-                                                     old_lease,
-                                                     new_lease.lease,
-                                                     &ri_hists) as f32 /
-                                 (*budget_per_phase.get(&phase).unwrap() - current_cost) as f32);
+                /*if new_phase_ref_cost.get(&phase) == None{
+                    println!("ERROR: new_phase_ref_cost does not contain phase
+                    {} 
+                    {:?}
+                    ",phase,&new_phase_ref_cost);
+                }*/
+
+
+                let &phase_ref_cost   = new_phase_ref_cost.get(&phase).unwrap(); 
+                println!("Debug: phase_ref_cost {}", phase_ref_cost);
+                if phase_ref_cost > 0 {
+                    if *budget_per_phase.get(&phase).unwrap() < current_cost{
+                        println!("
+                        ERROR: current cost exceeds budget
+                        *budget_per_phase.get(&phase).unwrap():  {}
+                        currenc_cost:                            {}
+                        ",
+                        *budget_per_phase.get(&phase).unwrap(),
+                        current_cost
+                        );
+                        panic!();
+                    }
+
+                    let remaining_budget = *budget_per_phase.get(&phase).unwrap() - current_cost; 
+                    println!("Debug: Phase {} remaining budget {} 
+                            phase_ref_cost as f32 / remaining_budget as f32: {}",
+                            phase,
+                            remaining_budget,
+                            phase_ref_cost as f32 / remaining_budget as f32);
+                    alpha = float_min(alpha, remaining_budget as f32 / phase_ref_cost as f32);
+                }
             }
 
-            //update cache use
-            for phase in &phase_ids{
-                cost_per_phase.insert(**phase, 
-                                      cost_per_phase.get(*phase).unwrap() + 
-                                         (get_phase_ref_cost(sample_rate,
-                                                             **phase,
-                                                             new_lease.ref_id,
-                                                             old_lease,
-                                                             new_lease.lease,
-                                                             &ri_hists) 
-                                            as f32 * alpha).round() as u64);
+            if alpha > 0.0
+            {
+                //update cache use
+                for phase in &phase_ids{
+                    cost_per_phase.insert(**phase, 
+                                          cost_per_phase.get(*phase).unwrap() + 
+                                          (*new_phase_ref_cost.get(&phase).unwrap() 
+                                                as f32 * alpha).round() as u64);
+                }
             }
 
             //update dual lease hashmap
+            //inserting with alpha=0 is still valuable, since it tells us to 
+            //ignore further lease increases of that reference. 
             dual_leases.insert(new_lease.ref_id,(alpha,new_lease.lease));
 
             if verbose {
-                println!("0-0-0-0-0-0-0-0-0");
+                println!("0---------New Dual Lease Assigned------------0");
                 println!("Assigned dual lease ({},{}) to reference {}", new_lease.lease, alpha, new_lease.ref_id);
-                println!("Cost per phase: {:?}", &cost_per_phase);
-                println!("Budget per phase: {:?}", &budget_per_phase);
+                for phase in &phase_ids{
+                    println!("Phase{}:
+                    Cost   {}
+                    Budget {}",
+                    phase,
+                    cost_per_phase.get(&phase).unwrap(),
+                    budget_per_phase.get(&phase).unwrap());
+
+                }
             }
+        }
+        if verbose { 
+            for phase in &phase_ids{
+                println!("Debug: phase: {}",phase);
+                println!("Debug:    cost_per_phase:   {:?}",cost_per_phase.get(&phase).unwrap());
+                println!("Debug:    budget_per_phase: {:?}",budget_per_phase.get(&phase).unwrap());
+            }
+            println!("===============OUTER LOOP ITER=====================");
         }
     }
     //None

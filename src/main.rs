@@ -17,7 +17,7 @@ fn main(){
             .about("Sets the output file name"))
         .get_matches();
 
-    let cache_size = 1;
+    let cache_size = 128;
     let sample_rate = 256;
 
     let (ri_hists,samples_per_phase) = cshel::build_ri_hists(matches.value_of("INPUT").unwrap());
