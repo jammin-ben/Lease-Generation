@@ -317,12 +317,12 @@ fn get_phase_ref_cost(sample_rate: u64, phase: u64,ref_id: u64,old_lease: u64,ne
         }
     }
 
-    println!("
+    /*println!("
              phase {} 
              new lease {} 
              old lease {}
              newcost {} 
-             oldcost {} ", phase, new_lease, old_lease, new_cost, old_cost);
+             oldcost {} ", phase, new_lease, old_lease, new_cost, old_cost);*/
 
     if new_cost < old_cost{
         for (ri,tuple) in ri_hist{
@@ -439,7 +439,7 @@ pub fn gen_leases_c_shel(ri_hists : &RIHists,
 
         let mut new_phase_ref_cost = HashMap::new(); 
 
-        println!("Debug: COST_PER_PHASE: {:?}",&cost_per_phase);
+        //println!("Debug: COST_PER_PHASE: {:?}",&cost_per_phase);
         
         for (&phase,&current_cost) in cost_per_phase.iter(){
             let new_cost = get_phase_ref_cost(sample_rate,
@@ -453,7 +453,7 @@ pub fn gen_leases_c_shel(ri_hists : &RIHists,
                 acceptable_lease = false;
             }
         }
-        println!("Debug: NEW_PHASE_REF_COST {:?}",&new_phase_ref_cost);
+        //println!("Debug: NEW_PHASE_REF_COST {:?}",&new_phase_ref_cost);
 
         if acceptable_lease {
             //update cache use
@@ -476,16 +476,14 @@ pub fn gen_leases_c_shel(ri_hists : &RIHists,
             }
 
             if verbose {
-                println!("0---------New Lease Assigned------------0");
+                println!("New Lease Assigned");
                 println!("Assigned lease {} to reference {}", new_lease.lease, new_lease.ref_id);
-                println!("Cost per phase: {:?}", &cost_per_phase);
-                println!("Budget per phase: {:?}", &budget_per_phase);
             }
         }
 
         else {
             //unacceptable lease, must assign a dual lease
-            println!("Debug: assigning dual lease");
+            //println!("Debug: assigning dual lease");
             let mut alpha = 1.0;
             for (&phase,&current_cost) in cost_per_phase.iter(){
                 /*if new_phase_ref_cost.get(&phase) == None{
@@ -497,7 +495,7 @@ pub fn gen_leases_c_shel(ri_hists : &RIHists,
 
 
                 let &phase_ref_cost   = new_phase_ref_cost.get(&phase).unwrap(); 
-                println!("Debug: phase_ref_cost {}", phase_ref_cost);
+                //println!("Debug: phase_ref_cost {}", phase_ref_cost);
                 if phase_ref_cost > 0 {
                     if *budget_per_phase.get(&phase).unwrap() < current_cost{
                         println!("
@@ -512,11 +510,11 @@ pub fn gen_leases_c_shel(ri_hists : &RIHists,
                     }
 
                     let remaining_budget = *budget_per_phase.get(&phase).unwrap() - current_cost; 
-                    println!("Debug: Phase {} remaining budget {} 
+                    /*println!("Debug: Phase {} remaining budget {} 
                             phase_ref_cost as f32 / remaining_budget as f32: {}",
                             phase,
                             remaining_budget,
-                            phase_ref_cost as f32 / remaining_budget as f32);
+                            phase_ref_cost as f32 / remaining_budget as f32);*/
                     alpha = float_min(alpha, remaining_budget as f32 / phase_ref_cost as f32);
                 }
             }
@@ -538,17 +536,8 @@ pub fn gen_leases_c_shel(ri_hists : &RIHists,
             dual_leases.insert(new_lease.ref_id,(alpha,new_lease.lease));
 
             if verbose {
-                println!("0---------New Dual Lease Assigned------------0");
+                println!("New Dual Lease Assigned");
                 println!("Assigned dual lease ({},{}) to reference {}", new_lease.lease, alpha, new_lease.ref_id);
-                for phase in &phase_ids{
-                    println!("Phase{}:
-                    Cost   {}
-                    Budget {}",
-                    phase,
-                    cost_per_phase.get(&phase).unwrap(),
-                    budget_per_phase.get(&phase).unwrap());
-
-                }
             }
         }
         if verbose { 
@@ -557,7 +546,6 @@ pub fn gen_leases_c_shel(ri_hists : &RIHists,
                 println!("Debug:    cost_per_phase:   {:?}",cost_per_phase.get(&phase).unwrap());
                 println!("Debug:    budget_per_phase: {:?}",budget_per_phase.get(&phase).unwrap());
             }
-            println!("===============OUTER LOOP ITER=====================");
         }
     }
     //None
