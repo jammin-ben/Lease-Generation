@@ -1,600 +1,621 @@
-use std::collections::HashMap;
-use std::collections::BinaryHeap;
-use core::cmp::Ordering;
-//use csv::{ReaderBuilder};
-use serde::{Serialize, Deserialize};
-//use std::fmt;
-use std::u64;
+//use std::collections::HashMap;
+//use std::collections::BinaryHeap;
+//use std::u64;
 
-#[derive(Deserialize)]
-#[derive(Debug)]
-struct Sample{
-    phase_id_ref: String,
-    ri: String,
-    tag: String,
-    time: u64,
-}
 
-#[derive(Serialize)]
-struct PhaseTime{
-    phase_id: u16,
-    start_time: u64,
-}
+// Functions for parsing input files, debug prints, 
+// and lease output
+pub mod io {
+    use serde::{Serialize, Deserialize};
+    use std::collections::BinaryHeap;
+    use std::collections::HashMap;
 
-pub struct RIHists{
-    ri_hists: HashMap<u64,HashMap<u64,(u64,HashMap<u64,(u64,u64)>)>>,
-}
+    #[derive(Deserialize)]
+    #[derive(Debug)]
+    struct Sample{
+        phase_id_ref: String,
+        ri: String,
+        tag: String,
+        time: u64,
+    }
 
-impl RIHists {
-    pub fn new(ri_hists_input: HashMap<u64,HashMap<u64,(u64,HashMap<u64,(u64,u64)>)>>) -> Self{
-        RIHists{
-            ri_hists: ri_hists_input, 
+    #[derive(Serialize)]
+    struct PhaseTime{
+        phase_id: u16,
+        start_time: u64,
+    }
+    pub fn build_phase_transitions(input_file:&str) -> Vec<(u64,u64)>{
+        println!("Reading input from: {}", input_file);
+
+        let mut rdr = csv::ReaderBuilder::new()
+            .has_headers(false)
+            .from_path(input_file)
+            .unwrap();
+
+        let mut sample_hash = HashMap::new();
+
+        for result in rdr.deserialize() {
+            let sample: Sample = result.unwrap();
+            let ri = u64::from_str_radix(&sample.ri,16).unwrap();
+            let mut time = sample.time;
+            let phase_id_ref = u64::from_str_radix(&sample.phase_id_ref,16).unwrap();
+
+            let phase_id = (phase_id_ref & 0xFF000000)>>24;
+            time = time - ri;
+            sample_hash.insert(time,phase_id);
+        }
+
+        let mut sorted_samples: Vec<_> = sample_hash.iter().collect();
+        sorted_samples.sort_by_key(|a| a.0);
+
+        //get phase transitions
+        let mut phase_transitions = HashMap::new(); //(time,phase start)
+        let mut phase = 0;
+        phase_transitions.insert(0,phase);
+
+        for s in sorted_samples.iter(){
+            if *s.1 != phase{
+                phase_transitions.insert(*s.0,*s.1);
+                phase = *s.1;
+            } 
+        }
+
+        let mut sorted_transitions: Vec<_> = phase_transitions.iter().collect();
+        sorted_transitions.sort_by_key(|a| a.0);
+
+        sorted_transitions.iter().map(|&x| (*(x.0),*(x.1))).collect()
+    }
+
+
+    //Build ri hists in the following form
+    //{ref_id,
+    //  {ri,
+    //    (count,{phase_id,(head_cost,tail_cost)})}}
+    //
+    // Head cost refers to the accumulation of 
+    // cost from reuses with length ri, which may span 
+    // phase boundaries.
+    
+    // Tail cost refers to the accumulation of cost from reuses greater than ri.
+    // This cost may span a phase boundary 
+    pub fn build_ri_hists(input_file:&str) -> (super::lease_gen::RIHists,HashMap<u64,u64>){
+        let phase_transitions = build_phase_transitions(input_file);
+        let mut rdr = csv::ReaderBuilder::new()
+            .has_headers(false)
+            .from_path(input_file)
+            .unwrap();
+
+        let mut ri_hists = HashMap::new();
+        let mut samples_per_phase = HashMap::new();
+
+        //first pass for head costs
+        for result in rdr.deserialize() {
+            let sample: Sample = result.unwrap();
+            let ri = u64::from_str_radix(&sample.ri,16).unwrap();
+            let time = sample.time;
+            let phase_id_ref = u64::from_str_radix(&sample.phase_id_ref,16).unwrap();
+            let next_phase_tuple = match super::helpers::binary_search(&phase_transitions,time-ri){
+                Some(v) => v,
+                None => (time+1,0),
+            };
+
+            super::lease_gen::process_sample_head_cost(&mut ri_hists,phase_id_ref,ri,time,next_phase_tuple);
+
+            let phase_id = (phase_id_ref & 0xFF000000)>>24;
+            *samples_per_phase.entry(phase_id).or_insert_with(|| 0)+=1;
+        }
+
+
+        let mut rdr = csv::ReaderBuilder::new()
+            .has_headers(false)
+            .from_path(input_file)
+            .unwrap();
+        //second pass for tail costs
+        for result in rdr.deserialize() {
+            let sample: Sample = result.unwrap();
+            let ri = u64::from_str_radix(&sample.ri,16).unwrap();
+            let time = sample.time;
+            let phase_id_ref = u64::from_str_radix(&sample.phase_id_ref,16).unwrap();
+            let next_phase_tuple = match super::helpers::binary_search(&phase_transitions,time-ri){
+                Some(v) => v,
+                None => (time+1,0),
+            };
+            super::lease_gen::process_sample_tail_cost(&mut ri_hists,
+                                     phase_id_ref,
+                                     ri,
+                                     time,
+                                     next_phase_tuple);
+        }
+
+        (super::lease_gen::RIHists::new(ri_hists),samples_per_phase)
+    }
+
+    pub fn dump_leases(leases: HashMap<u64,u64>, dual_leases: HashMap<u64,(f32,u64)>) {
+        for (&phase_address,&lease) in leases.iter(){
+            let phase   = (phase_address & 0xFF000000)>>24;
+            let address =  phase_address & 0x00FFFFFF;
+            if dual_leases.contains_key(&phase_address){
+                println!("{:x}, {:x}, {:x}, {:x}, {}", 
+                         phase,
+                         address, 
+                         lease, 
+                         dual_leases.get(&phase_address).unwrap().1, 
+                         1.0 - dual_leases.get(&phase_address).unwrap().0);
+            }
+            else{
+                println!("{:x}, {:x}, {:x}, 0, 1", 
+                         phase,
+                         address, 
+                         lease);
+            }
         }
     }
-
-    pub fn get_ref_hist(&self,ref_id: u64) -> &HashMap<u64,(u64,HashMap<u64,(u64,u64)>)>{
-        return self.ri_hists.get(&ref_id).unwrap();
-    }
-
-    pub fn get_ref_ri_count(&self,ref_id: u64,ri:u64) -> u64 {
-        return self.ri_hists.get(&ref_id).unwrap().get(&ri).unwrap().0;
-    }
-
-    pub fn get_ref_ri_cost(&self,ref_id: u64,ri:u64) -> &HashMap<u64,(u64,u64)> {
-        return &self.ri_hists.get(&ref_id).unwrap().get(&ri).unwrap().1;
-    }
-
-    pub fn get_ref_ri_phase_cost(&self,ref_id: u64, ri:u64, phase: u64) -> (u64,u64) {
-        return *self.ri_hists.get(&ref_id).unwrap().get(&ri).unwrap().1.get(&phase).unwrap();
-    }
-}
-
-#[derive(Debug,Copy,Clone)]
-pub struct PPUC {
-    ppuc: f32,
-    lease: u64,
-    old_lease: u64,
-    ref_id: u64,
-}
-/*impl PartialOrd for PPUC {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering>{
-        other.ppuc.partial_cmp(&self.ppuc)
-    }
-}*/
-
-impl PartialOrd for PPUC {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering>{
-        self.ppuc.partial_cmp(&other.ppuc)
-    }
-}
-
-impl Ord for PPUC {
-    fn cmp(&self, other: &Self) -> Ordering {
-        other.ppuc.partial_cmp(&self.ppuc).unwrap()
-    }
-}
-impl PartialEq for PPUC {
-    fn eq(&self, other: &Self) -> bool{
-        other.ppuc.eq(&self.ppuc)
-    }
-}
-
-impl Eq for PPUC {}
-
-fn build_phase_transitions(input_file:&str) -> Vec<(u64,u64)>{
-    println!("Reading input from: {}", input_file);
-
-    let mut rdr = csv::ReaderBuilder::new()
-        .has_headers(false)
-        .from_path(input_file)
-        .unwrap();
-
-    let mut sample_hash = HashMap::new();
-
-    for result in rdr.deserialize() {
-        let sample: Sample = result.unwrap();
-        let ri = u64::from_str_radix(&sample.ri,16).unwrap();
-        let mut time = sample.time;
-        let phase_id_ref = u64::from_str_radix(&sample.phase_id_ref,16).unwrap();
-
-        let phase_id = (phase_id_ref & 0xFF000000)>>24;
-        time = time - ri;
-        sample_hash.insert(time,phase_id);
-    }
-
-    let mut sorted_samples: Vec<_> = sample_hash.iter().collect();
-    sorted_samples.sort_by_key(|a| a.0);
-
-    //get phase transitions
-    let mut phase_transitions = HashMap::new(); //(time,phase start)
-    let mut phase = 0;
-    phase_transitions.insert(0,phase);
-
-    for s in sorted_samples.iter(){
-        if *s.1 != phase{
-            phase_transitions.insert(*s.0,*s.1);
-            phase = *s.1;
-        } 
-    }
-
-    let mut sorted_transitions: Vec<_> = phase_transitions.iter().collect();
-    sorted_transitions.sort_by_key(|a| a.0);
-
-    sorted_transitions.iter().map(|&x| (*(x.0),*(x.1))).collect()
-
-    //sorted_transitions.into_iter().cloned().collect()
-}
-
-fn binary_search(vector: &Vec<(u64,u64)>,value:u64) -> Option<(u64,u64)>{
-    let mut min = 0;
-    let mut max = vector.len() - 1;
-
-    while max>=min{
-        let guess = (max + min)/2;
-        if vector[guess].0==value{ //on transition sample
-            if guess < vector.len() - 1{
-                return Some(vector[guess+1]);
+    
+    pub mod debug {
+        pub fn print_ri_hists(rihists: &super::super::lease_gen::RIHists){
+            for (ref_id, ref_ri_hist) in &rihists.ri_hists{
+                println!("({},0x{:x}):",(ref_id & 0xFF000000) >> 24, ref_id & 0x00FFFFFF);
+                for (ri,tuple) in ref_ri_hist{
+                    println!(" | ri 0x{:x}: count {}",ri, tuple.0);
+                    for (phase_id,cost) in &tuple.1{
+                        println!(" | | phase {} head_cost {} tail_cost {}",
+                                 phase_id,
+                                 cost.0,
+                                 cost.1);
+                    }
+                }
             }
-            //transition of last phase
+        }
+
+        pub fn destructive_print_ppuc_tree(ppuc_tree: &mut super::BinaryHeap<super::super::lease_gen::PPUC>){
+            while ppuc_tree.peek() != None{
+                println!("ppuc: {:?}",ppuc_tree.pop().unwrap());
+            }
+        }
+    }
+}
+
+//Small miscellaneous functions used 
+mod helpers {
+    pub fn float_min(a: f32, b:f32) -> f32{
+        if a.lt(&b){ 
+            return a;
+        }
+        b
+    }
+
+    pub fn binary_search(vector: &Vec<(u64,u64)>,value:u64) -> Option<(u64,u64)>{
+        let mut min = 0;
+        let mut max = vector.len() - 1;
+
+        while max>=min{
+            let guess = (max + min)/2;
+            if vector[guess].0==value{ //on transition sample
+                if guess < vector.len() - 1{
+                    return Some(vector[guess+1]);
+                }
+                //transition of last phase
+                return None;
+            }
+
+            if vector[guess].0 < value{
+                min = guess+1;
+            }
+            if vector[guess].0 > value{
+                if guess >0{
+                    max = guess-1;
+                }
+                else{
+                    return Some(vector[guess])
+                }
+            }
+        }
+        assert_eq!(max,min-1);
+        if min==vector.len(){
             return None;
         }
 
-        if vector[guess].0 < value{
-            min = guess+1;
-        }
-        if vector[guess].0 > value{
-            if guess >0{
-                max = guess-1;
+        Some(vector[min])
+    }
+}
+
+
+//Core Algorithms
+pub mod lease_gen {
+    
+    use std::collections::BinaryHeap;
+    use std::collections::HashMap;
+    use core::cmp::Ordering;
+
+    pub struct RIHists{
+        pub ri_hists: HashMap<u64,HashMap<u64,(u64,HashMap<u64,(u64,u64)>)>>,
+    }
+
+    impl RIHists {
+        pub fn new(ri_hists_input: HashMap<u64,HashMap<u64,(u64,HashMap<u64,(u64,u64)>)>>) -> Self{
+            RIHists{
+                ri_hists: ri_hists_input, 
             }
-            else{
-                return Some(vector[guess])
-            }
+        }
+
+        pub fn get_ref_hist(&self,ref_id: u64) -> &HashMap<u64,(u64,HashMap<u64,(u64,u64)>)>{
+            return self.ri_hists.get(&ref_id).unwrap();
+        }
+
+        pub fn get_ref_ri_count(&self,ref_id: u64,ri:u64) -> u64 {
+            return self.ri_hists.get(&ref_id).unwrap().get(&ri).unwrap().0;
+        }
+
+        pub fn get_ref_ri_cost(&self,ref_id: u64,ri:u64) -> &HashMap<u64,(u64,u64)> {
+            return &self.ri_hists.get(&ref_id).unwrap().get(&ri).unwrap().1;
+        }
+
+        pub fn get_ref_ri_phase_cost(&self,ref_id: u64, ri:u64, phase: u64) -> (u64,u64) {
+            return *self.ri_hists.get(&ref_id).unwrap().get(&ri).unwrap().1.get(&phase).unwrap();
         }
     }
-    assert_eq!(max,min-1);
-    if min==vector.len(){
-        return None;
+
+    #[derive(Debug,Copy,Clone)]
+    pub struct PPUC {
+        ppuc: f32,
+        lease: u64,
+        old_lease: u64,
+        ref_id: u64,
     }
-
-    Some(vector[min])
-}
-
-fn process_sample_head_cost(ri_hists: &mut HashMap<u64,HashMap<u64,(u64,HashMap<u64,(u64,u64)>)>>,
-                  phase_id_ref: u64,
-                  ri: u64,
-                  time: u64,
-                  next_phase_tuple: (u64,u64)){
-
-    let phase_id = (phase_id_ref & 0xFF000000)>>24;
-    let start_time = time - ri;
-
-    //increment count
-    let ref_hist = ri_hists.entry(phase_id_ref).or_insert_with(|| HashMap::new());
-    let ri_tuple = ref_hist.entry(ri).or_insert_with(|| (0,HashMap::new()));
-    ri_tuple.0  += 1;
-
-    //increment head costs
-    let this_phase_head_cost= std::cmp::min(next_phase_tuple.0 - start_time,ri);
-    let next_phase_head_cost= std::cmp::max(time as i64 - next_phase_tuple.0 as i64,0) as u64;
-    ri_tuple.1.entry(phase_id).or_insert_with(|| (0,0)).0 += this_phase_head_cost;
-
-    if next_phase_head_cost>0 {
-        ri_tuple.1.entry(next_phase_tuple.1).or_insert_with(|| (0,0)).0 += next_phase_head_cost;
-    }
-}
-
-fn process_sample_tail_cost(ri_hists: &mut HashMap<u64,HashMap<u64,(u64,HashMap<u64,(u64,u64)>)>>,
-                  phase_id_ref: u64,
-                  ri: u64,
-                  time: u64,
-                  next_phase_tuple: (u64,u64)){
-
-    let phase_id = (phase_id_ref & 0xFF000000)>>24;
-    let start_time = time - ri;
-
-    let ref_hist = ri_hists.entry(phase_id_ref).or_insert_with(|| HashMap::new());
-
-    //this heinous code exists so we can iterate through a hashmap while modifying it
-    let ris: Vec<&u64> = ref_hist.keys().collect();
-    let mut ris_keys :Vec<u64> = Vec::new();
-    for ri_other in ris{
-        ris_keys.push(*ri_other);
-    }
-
-    //increment tail costs
-    for ri_other in ris_keys {
-
-        //no tail cost if the other ri is greater
-        if ri_other >= ri {
-            continue;
-        }
-        let count_phase_cost_tuple = ref_hist.entry(ri_other).or_insert_with(|| (0,HashMap::new()));
-
-        let this_phase_tail_cost = std::cmp::min(next_phase_tuple.0 - start_time, ri_other);
-        let next_phase_tail_cost = std::cmp::max(0,start_time as i64 + ri_other as i64 - next_phase_tuple.0 as i64) as u64;
-
-        count_phase_cost_tuple.1.entry(phase_id).or_insert_with(|| (0,0)).1 += this_phase_tail_cost;
-
-        if next_phase_tail_cost > 0 {
-            count_phase_cost_tuple.1.entry(next_phase_tuple.1).or_insert_with(|| (0,0)).1 += next_phase_tail_cost;
+    impl PartialOrd for PPUC {
+        fn partial_cmp(&self, other: &Self) -> Option<Ordering>{
+            self.ppuc.partial_cmp(&other.ppuc)
         }
     }
-}
+    impl Ord for PPUC {
+        fn cmp(&self, other: &Self) -> Ordering {
+            other.ppuc.partial_cmp(&self.ppuc).unwrap()
+        }
+    }
+    impl PartialEq for PPUC {
+        fn eq(&self, other: &Self) -> bool{
+            other.ppuc.eq(&self.ppuc)
+        }
+    }
+    impl Eq for PPUC {}
 
-//Build ri hists in the following form
-//{ref_id,
-//  {ri,
-//    (count,{phase_id,(head_cost,tail_cost)})}}
-//
-// Head cost refers to the accumulation of cost from reuses with length ri, which may span 
-// phase boundaries.
-//
-// Tail cost refers to the accumulation of cost from reuses greater than ri.
-// This cost may span a phase boundary 
-pub fn build_ri_hists(input_file:&str)-> (RIHists,HashMap<u64,u64>){
-    let phase_transitions = build_phase_transitions(input_file);
-    let mut rdr = csv::ReaderBuilder::new()
-        .has_headers(false)
-        .from_path(input_file)
-        .unwrap();
-
-    let mut ri_hists = HashMap::new();
-    let mut samples_per_phase = HashMap::new();
-
-    //first pass for head costs
-    for result in rdr.deserialize() {
-        let sample: Sample = result.unwrap();
-        let ri = u64::from_str_radix(&sample.ri,16).unwrap();
-        let time = sample.time;
-        let phase_id_ref = u64::from_str_radix(&sample.phase_id_ref,16).unwrap();
-        let next_phase_tuple = match binary_search(&phase_transitions,time-ri){
-            Some(v) => v,
-            None => (time+1,0),
-        };
-
-        process_sample_head_cost(&mut ri_hists,phase_id_ref,ri,time,next_phase_tuple);
+    pub fn process_sample_head_cost(ri_hists: &mut HashMap<u64,HashMap<u64,(u64,HashMap<u64,(u64,u64)>)>>,
+                      phase_id_ref: u64,
+                      ri: u64,
+                      time: u64,
+                      next_phase_tuple: (u64,u64)){
 
         let phase_id = (phase_id_ref & 0xFF000000)>>24;
-        *samples_per_phase.entry(phase_id).or_insert_with(|| 0)+=1;
+        let start_time = time - ri;
+
+        //increment count
+        let ref_hist = ri_hists.entry(phase_id_ref).or_insert_with(|| HashMap::new());
+        let ri_tuple = ref_hist.entry(ri).or_insert_with(|| (0,HashMap::new()));
+        ri_tuple.0  += 1;
+
+        //increment head costs
+        let this_phase_head_cost= std::cmp::min(next_phase_tuple.0 - start_time,ri);
+        let next_phase_head_cost= std::cmp::max(time as i64 - next_phase_tuple.0 as i64,
+                                                0) as u64;
+        ri_tuple.1.entry(phase_id)
+            .or_insert_with(|| (0,0)).0 += this_phase_head_cost;
+
+        if next_phase_head_cost>0 {
+            ri_tuple.1.entry(next_phase_tuple.1)
+                .or_insert_with(|| (0,0)).0 += next_phase_head_cost;
+        }
     }
 
+    pub fn process_sample_tail_cost(ri_hists: &mut HashMap<u64,HashMap<u64,(u64,HashMap<u64,(u64,u64)>)>>,
+                      phase_id_ref: u64,
+                      ri: u64,
+                      time: u64,
+                      next_phase_tuple: (u64,u64)){
 
-    let mut rdr = csv::ReaderBuilder::new()
-        .has_headers(false)
-        .from_path(input_file)
-        .unwrap();
-    //second pass for tail costs
-    for result in rdr.deserialize() {
-        let sample: Sample = result.unwrap();
-        let ri = u64::from_str_radix(&sample.ri,16).unwrap();
-        let time = sample.time;
-        let phase_id_ref = u64::from_str_radix(&sample.phase_id_ref,16).unwrap();
-        let next_phase_tuple = match binary_search(&phase_transitions,time-ri){
-            Some(v) => v,
-            None => (time+1,0),
-        };
-        process_sample_tail_cost(&mut ri_hists,phase_id_ref,ri,time,next_phase_tuple);
-    }
+        let phase_id = (phase_id_ref & 0xFF000000)>>24;
+        let start_time = time - ri;
 
-    (RIHists::new(ri_hists),samples_per_phase)
-}
+        let ref_hist = ri_hists.entry(phase_id_ref)
+            .or_insert_with(|| HashMap::new());
 
-pub fn print_ri_hists(rihists: &RIHists){
-    for (ref_id, ref_ri_hist) in &rihists.ri_hists{
-        println!("{}:",ref_id);
-        for (ri,tuple) in ref_ri_hist{
-            println!(" | ri {}: count {}",ri, tuple.0);
-            for (phase_id,cost) in &tuple.1{
-                println!(" | | phase {} head_cost {} tail_cost {}",phase_id,cost.0,cost.1);
+        //this heinous code exists so we can iterate through a hashmap while modifying it
+        let ris: Vec<&u64> = ref_hist.keys().collect();
+        let mut ris_keys :Vec<u64> = Vec::new();
+        for ri_other in ris{
+            ris_keys.push(*ri_other);
+        }
+
+        //increment tail costs
+        for ri_other in ris_keys {
+
+            //no tail cost if the other ri is greater
+            if ri_other >= ri {
+                continue;
+            }
+            let count_phase_cost_tuple = ref_hist.entry(ri_other)
+                .or_insert_with(|| (0,HashMap::new()));
+
+            let this_phase_tail_cost = std::cmp::min(next_phase_tuple.0 - start_time,
+                                                     ri_other);
+            let next_phase_tail_cost = std::cmp::max(0,
+                                                     start_time as i64 + 
+                                                       ri_other as i64 - 
+                                                       next_phase_tuple.0 as i64) as u64;
+
+            count_phase_cost_tuple.1.entry(phase_id)
+                .or_insert_with(|| (0,0)).1 += this_phase_tail_cost;
+
+            if next_phase_tail_cost > 0 {
+                count_phase_cost_tuple.1.entry(next_phase_tuple.1)
+                    .or_insert_with(|| (0,0)).1 += next_phase_tail_cost;
             }
         }
     }
-}
 
-fn get_phase_ref_cost(sample_rate: u64, phase: u64,ref_id: u64,old_lease: u64,new_lease: u64,ri_hists: &RIHists) -> u64 {
-    let mut old_cost = 0;
-    let mut new_cost = 0;
-    let ri_hist = ri_hists.ri_hists.get(&ref_id).unwrap();
+    fn get_phase_ref_cost(sample_rate: u64, phase: u64,ref_id: u64,old_lease: u64,new_lease: u64,ri_hists: &RIHists) -> u64 {
+        let mut old_cost = 0;
+        let mut new_cost = 0;
+        let ri_hist = ri_hists.ri_hists.get(&ref_id).unwrap();
 
-    for (&ri,(_,phase_cost_hashmap)) in ri_hist.iter(){
-        let (phase_head_cost,phase_tail_cost) = match phase_cost_hashmap.get(&phase) {
-            Some((a,b)) => (*a,*b),
-            None        => (0,0), 
-        };
+        for (&ri,(_,phase_cost_hashmap)) in ri_hist.iter(){
+            let (phase_head_cost,phase_tail_cost) = match phase_cost_hashmap.get(&phase) {
+                Some((a,b)) => (*a,*b),
+                None        => (0,0), 
+            };
 
-        if ri <= old_lease {
-            old_cost += phase_head_cost * sample_rate;
-        }
-        if ri == old_lease {
-            old_cost += phase_tail_cost * sample_rate;
-        }
+            if ri <= old_lease {
+                old_cost += phase_head_cost * sample_rate;
+            }
+            if ri == old_lease {
+                old_cost += phase_tail_cost * sample_rate;
+            }
 
-        if ri <= new_lease {
-            new_cost += phase_head_cost * sample_rate;
-        }
-        if ri == new_lease {
-            new_cost += phase_tail_cost * sample_rate;
-        }
-    }
-
-    /*println!("
-             phase {} 
-             new lease {} 
-             old lease {}
-             newcost {} 
-             oldcost {} ", phase, new_lease, old_lease, new_cost, old_cost);*/
-
-    if new_cost < old_cost{
-        for (ri,tuple) in ri_hist{
-            println!(" | ri {}: count {}",ri, tuple.0);
-            for (phase_id,cost) in &tuple.1{
-                println!(" | | phase {} head_cost {} tail_cost {}",phase_id,cost.0,cost.1);
+            if ri <= new_lease {
+                new_cost += phase_head_cost * sample_rate;
+            }
+            if ri == new_lease {
+                new_cost += phase_tail_cost * sample_rate;
             }
         }
-        panic!();
-    }
-    new_cost - old_cost
-}
 
-pub fn dump_leases(leases: HashMap<u64,u64>, dual_leases: HashMap<u64,(f32,u64)>) {
-    for (&phase_address,&lease) in leases.iter(){
-        let phase   = (phase_address & 0xFF000000)>>24;
-        let address =  phase_address & 0x00FFFFFF;
-        if dual_leases.contains_key(&phase_address){
-            println!("{:x}, {:x}, {:x}, {:x}, {}", 
-                     phase,
-                     address, 
-                     lease, 
-                     dual_leases.get(&phase_address).unwrap().1, 
-                     1.0 - dual_leases.get(&phase_address).unwrap().0);
+
+        if new_cost < old_cost{
+            for (ri,tuple) in ri_hist{
+                println!(" | ri {}: count {}",ri, tuple.0);
+                for (phase_id,cost) in &tuple.1{
+                    println!(" | | phase {} head_cost {} tail_cost {}",phase_id,cost.0,cost.1);
+                }
+            }
+            panic!();
         }
-        else{
-            println!("{:x}, {:x}, {:x}, 0, 1", 
-                     phase,
-                     address, 
-                     lease);
-        }
-    }
-}
-
-pub fn destructive_print_ppuc_tree(ppuc_tree: &mut BinaryHeap<PPUC>){
-    while ppuc_tree.peek() != None{
-        println!("ppuc: {:?}",ppuc_tree.pop().unwrap());
-    }
-}
-
-pub fn gen_leases_c_shel(ri_hists : &RIHists, 
-              cache_size : u64, 
-              sample_rate : u64, 
-              samples_per_phase : HashMap<u64,u64>,
-              verbose: bool) -> Option<(HashMap<u64,u64>,HashMap<u64,(f32,u64)>)>{
-
-    let mut new_lease: PPUC;
-    let mut cost_per_phase = HashMap::new();
-    let mut budget_per_phase = HashMap::new();
-    let mut leases = HashMap::new(); //{ri, lease}
-    let mut dual_leases : HashMap<u64,(f32,u64)>= HashMap::new(); //{ri, (alpha, long_lease)}
-    
-    let phase_ids: Vec<&u64> = samples_per_phase.keys().collect();
-
-    if verbose {
-        println!("---------Dump RI Hists------------");
-        print_ri_hists(&ri_hists);
-        println!("---------Dump Samples Per Phase---");
-        println!("{:?}",&samples_per_phase);
+        new_cost - old_cost
     }
 
-    //initialize ppucs
-    let mut ppuc_tree = BinaryHeap::new();
+    fn get_ppuc(ref_id: u64, 
+                base_lease: u64, 
+                ref_ri_hist: &HashMap<u64,(u64,HashMap<u64,(u64,u64)>)>) -> Vec<PPUC>{
 
-    for (&ref_id, ri_hist) in ri_hists.ri_hists.iter(){
-        let ppuc_vec = get_ppuc(ref_id,0,ri_hist);
-        for ppuc in ppuc_vec.iter(){
-            ppuc_tree.push(*ppuc);
-        }
-    }
+        let ri_hist: Vec<(u64,u64)> = ref_ri_hist.iter().map(|(k,v)|(*k,v.0)).collect();
+        let total_count = ri_hist.iter().fold(0,|acc,(_k,v)| acc+v);
+        let mut hits = 0;
+        let mut head_cost = 0;
 
-    //if verbose {
-     //   destructive_print_ppuc_tree(&mut ppuc_tree);
-   // }
+        let mut lease_hit_table = HashMap::new();
+        let mut lease_cost_table = HashMap::new();
 
-    //initialize cost + budget
-    for (&phase,&num) in samples_per_phase.iter(){
-        cost_per_phase.insert(phase, 0);  
-        budget_per_phase.insert(phase, num * cache_size * sample_rate);
-    }
+        lease_hit_table.insert(0,0);
+        lease_cost_table.insert(0,0);
 
-    if verbose{
-        println!("
-        ---------------------
-        Initial budget per phase: 
-        {:?} 
-        ---------------------",
-        budget_per_phase);
-    }
+        let mut ri_hist_clone = ri_hist.clone();
+        ri_hist_clone.sort_by(|a,b| a.0.cmp(&b.0));
 
-    //initialize leases
-    for (&ref_id, _ ) in ri_hists.ri_hists.iter(){
-        leases.insert(ref_id,0);
-    }
+        for (ri,count) in ri_hist_clone.iter(){
+            hits += *count;
+            head_cost += *count * *ri ;
+            let tail_cost = (total_count - hits) * *ri ;
 
-    loop {
-        new_lease = match ppuc_tree.pop(){
-            Some(i) => i,
-            None => return Some((leases,dual_leases)),
-        };
-
-        //continue to pop until we have a ppuc with the right base_lease
-        if new_lease.old_lease != *leases.get(&new_lease.ref_id).unwrap(){
-            continue;
+            lease_hit_table.insert(*ri,hits);
+            lease_cost_table.insert(*ri,head_cost + tail_cost);
         }
 
-        if dual_leases.contains_key(&new_lease.ref_id){
-            continue;
-        }
+        ri_hist_clone.iter().map(|(k,_v)| k).filter(|k| **k > base_lease).map(
+            |k| PPUC {
+                ppuc:((*lease_hit_table.get(k).unwrap() -*lease_hit_table.get(&base_lease).unwrap()) as f32/
+                      (*lease_cost_table.get(k).unwrap()-*lease_cost_table.get(&base_lease).unwrap())as f32),
+                lease: *k,
+                old_lease: base_lease,
+                ref_id: ref_id, 
+            }
+        ).collect()
+    }
+    pub fn c_shel(ri_hists : &RIHists, 
+                  cache_size : u64, 
+                  sample_rate : u64, 
+                  samples_per_phase : HashMap<u64,u64>,
+                  verbose: bool,
+                  debug: bool) -> Option<(HashMap<u64,u64>,HashMap<u64,(f32,u64)>)>{
 
-        let old_lease = *leases.get(&new_lease.ref_id).unwrap();
-        //check for capacity
-        let mut acceptable_lease = true;
-
-        let mut new_phase_ref_cost = HashMap::new(); 
-
-        //println!("Debug: COST_PER_PHASE: {:?}",&cost_per_phase);
+        let mut new_lease: PPUC;
+        let mut cost_per_phase = HashMap::new();
+        let mut budget_per_phase = HashMap::new();
+        let mut leases = HashMap::new(); //{ri, lease}
+        let mut dual_leases : HashMap<u64,(f32,u64)>= HashMap::new(); //{ri, (alpha, long_lease)}
         
-        for (&phase,&current_cost) in cost_per_phase.iter(){
-            let new_cost = get_phase_ref_cost(sample_rate,
-                                              phase,
-                                              new_lease.ref_id,
-                                              old_lease,
-                                              new_lease.lease,
-                                              &ri_hists);
-            new_phase_ref_cost.insert(phase,new_cost);
-            if (new_cost + current_cost) > *budget_per_phase.get(&phase).unwrap() {
-                acceptable_lease = false;
-            }
+        let phase_ids: Vec<&u64> = samples_per_phase.keys().collect();
+
+        if verbose {
+            println!("---------Dump RI Hists------------");
+            super::io::debug::print_ri_hists(&ri_hists);
+            println!("---------Dump Samples Per Phase---");
+            println!("{:?}",&samples_per_phase);
         }
-        //println!("Debug: NEW_PHASE_REF_COST {:?}",&new_phase_ref_cost);
 
-        if acceptable_lease {
-            //update cache use
-            
-            for phase in &phase_ids{
-                cost_per_phase.insert(**phase, 
-                                      cost_per_phase.get(*phase).unwrap() + new_phase_ref_cost.get(phase).unwrap()); 
-            }
+        //initialize ppucs
+        let mut ppuc_tree = BinaryHeap::new();
 
-            //update leases
-            leases.insert(new_lease.ref_id,new_lease.lease);
-
-            //push new ppucs
-            let ppuc_vec = get_ppuc(new_lease.ref_id,
-                                    new_lease.lease,
-                                    ri_hists.ri_hists.get(&new_lease.ref_id).unwrap());
-
+        for (&ref_id, ri_hist) in ri_hists.ri_hists.iter(){
+            let ppuc_vec = get_ppuc(ref_id,0,ri_hist);
             for ppuc in ppuc_vec.iter(){
                 ppuc_tree.push(*ppuc);
             }
-
-            if verbose {
-                println!("New Lease Assigned");
-                println!("Assigned lease {} to reference {}", new_lease.lease, new_lease.ref_id);
-            }
         }
 
-        else {
-            //unacceptable lease, must assign a dual lease
-            //println!("Debug: assigning dual lease");
-            let mut alpha = 1.0;
-            for (&phase,&current_cost) in cost_per_phase.iter(){
-                /*if new_phase_ref_cost.get(&phase) == None{
-                    println!("ERROR: new_phase_ref_cost does not contain phase
-                    {} 
-                    {:?}
-                    ",phase,&new_phase_ref_cost);
-                }*/
+        //initialize cost + budget
+        for (&phase,&num) in samples_per_phase.iter(){
+            cost_per_phase.insert(phase, 0);  
+            budget_per_phase.insert(phase, num * cache_size * sample_rate);
+        }
 
+        if verbose{
+            println!("
+            ---------------------
+            Initial budget per phase: 
+            {:?} 
+            ---------------------",
+            budget_per_phase);
+        }
 
-                let &phase_ref_cost   = new_phase_ref_cost.get(&phase).unwrap(); 
-                //println!("Debug: phase_ref_cost {}", phase_ref_cost);
-                if phase_ref_cost > 0 {
-                    if *budget_per_phase.get(&phase).unwrap() < current_cost{
-                        println!("
-                        ERROR: current cost exceeds budget
-                        *budget_per_phase.get(&phase).unwrap():  {}
-                        currenc_cost:                            {}
-                        ",
-                        *budget_per_phase.get(&phase).unwrap(),
-                        current_cost
-                        );
-                        panic!();
-                    }
+        //initialize leases
+        for (&ref_id, _ ) in ri_hists.ri_hists.iter(){
+            leases.insert(ref_id,0);
+        }
 
-                    let remaining_budget = *budget_per_phase.get(&phase).unwrap() - current_cost; 
-                    /*println!("Debug: Phase {} remaining budget {} 
-                            phase_ref_cost as f32 / remaining_budget as f32: {}",
-                            phase,
-                            remaining_budget,
-                            phase_ref_cost as f32 / remaining_budget as f32);*/
-                    alpha = float_min(alpha, remaining_budget as f32 / phase_ref_cost as f32);
-                }
+        loop {
+            new_lease = match ppuc_tree.pop(){
+                Some(i) => i,
+                None => return Some((leases,dual_leases)),
+            };
+
+            //continue to pop until we have a ppuc with the right base_lease
+            if new_lease.old_lease != *leases.get(&new_lease.ref_id).unwrap(){
+                continue;
             }
 
-            if alpha > 0.0
-            {
+            if dual_leases.contains_key(&new_lease.ref_id){
+                continue;
+            }
+
+            let old_lease = *leases.get(&new_lease.ref_id).unwrap();
+            //check for capacity
+            let mut acceptable_lease = true;
+            let mut new_phase_ref_cost = HashMap::new(); 
+            for (&phase,&current_cost) in cost_per_phase.iter(){
+                let new_cost = get_phase_ref_cost(sample_rate,
+                                                  phase,
+                                                  new_lease.ref_id,
+                                                  old_lease,
+                                                  new_lease.lease,
+                                                  &ri_hists);
+                new_phase_ref_cost.insert(phase,new_cost);
+                if (new_cost + current_cost) > *budget_per_phase.get(&phase).unwrap() {
+                    acceptable_lease = false;
+                }
+            }
+            if verbose & debug {
+                println!("Debug: NEW_PHASE_REF_COST {:?}",&new_phase_ref_cost);
+            }
+
+            if acceptable_lease {
                 //update cache use
                 for phase in &phase_ids{
                     cost_per_phase.insert(**phase, 
-                                          cost_per_phase.get(*phase).unwrap() + 
-                                          (*new_phase_ref_cost.get(&phase).unwrap() 
-                                                as f32 * alpha).round() as u64);
+                                          cost_per_phase.get(*phase).unwrap() + new_phase_ref_cost.get(phase).unwrap()); 
+                }
+                //update leases
+                leases.insert(new_lease.ref_id,new_lease.lease);
+                //push new ppucs
+                let ppuc_vec = get_ppuc(new_lease.ref_id,
+                                        new_lease.lease,
+                                        ri_hists.ri_hists.get(&new_lease.ref_id).unwrap());
+
+                for ppuc in ppuc_vec.iter(){
+                    ppuc_tree.push(*ppuc);
+                }
+
+                if verbose {
+                    println!("Assigned lease {:x} to reference ({},{:x})", 
+                             new_lease.lease, (new_lease.ref_id & 0xFF000000) >> 24, 
+                             new_lease.ref_id & 0x00FFFFFF);
                 }
             }
 
-            //update dual lease hashmap
-            //inserting with alpha=0 is still valuable, since it tells us to 
-            //ignore further lease increases of that reference. 
-            dual_leases.insert(new_lease.ref_id,(alpha,new_lease.lease));
+            else {
+                //unacceptable lease, must assign a dual lease
+                let mut alpha = 1.0;
+                for (&phase,&current_cost) in cost_per_phase.iter(){
+                    let &phase_ref_cost   = new_phase_ref_cost.get(&phase).unwrap(); 
+                    if phase_ref_cost > 0 {
+                        if *budget_per_phase.get(&phase).unwrap() < current_cost{
+                            println!("
+                            ERROR: current cost exceeds budget
+                            *budget_per_phase.get(&phase).unwrap():  {}
+                            currenc_cost:                            {}
+                            ",
+                            *budget_per_phase.get(&phase).unwrap(),
+                            current_cost
+                            );
+                            panic!();
+                        }
 
-            if verbose {
-                println!("New Dual Lease Assigned");
-                println!("Assigned dual lease ({},{}) to reference {}", new_lease.lease, alpha, new_lease.ref_id);
+                        let remaining_budget = *budget_per_phase.get(&phase).unwrap() - current_cost; 
+                        alpha = super::helpers::float_min(alpha, remaining_budget as f32 / phase_ref_cost as f32);
+                    }
+                }
+
+                if alpha > 0.0{
+                    //update cache use
+                    for phase in &phase_ids{
+                        cost_per_phase.insert(**phase, 
+                                              cost_per_phase.get(*phase).unwrap() + 
+                                              (*new_phase_ref_cost.get(&phase).unwrap() 
+                                                    as f32 * alpha).round() as u64);
+                    }
+                }
+
+                //update dual lease hashmap
+                //inserting with alpha=0 is still valuable, since it tells us to 
+                //ignore further lease increases of that reference. 
+                dual_leases.insert(new_lease.ref_id,(alpha,new_lease.lease));
+
+                if verbose {
+                    println!("Assigned dual lease ({:x},{}) to reference ({},{:x})",
+                              new_lease.lease, 
+                              alpha, 
+                              (new_lease.ref_id & 0xFF000000) >> 24,
+                              new_lease.ref_id & 0x00FFFFFF);
+                }
+            }
+            if verbose & debug { 
+                for phase in &phase_ids{
+                    println!("Debug: phase: {}",phase);
+                    println!("Debug:    cost_per_phase:   {:?}",
+                             cost_per_phase.get(&phase).unwrap());
+                    println!("Debug:    budget_per_phase: {:?}",
+                             budget_per_phase.get(&phase).unwrap());
+                }
+                println!("=================OUTER LOOP ITER===============");
             }
         }
-        if verbose { 
-            for phase in &phase_ids{
-                println!("Debug: phase: {}",phase);
-                println!("Debug:    cost_per_phase:   {:?}",cost_per_phase.get(&phase).unwrap());
-                println!("Debug:    budget_per_phase: {:?}",budget_per_phase.get(&phase).unwrap());
-            }
-        }
     }
-    //None
 }
 
-fn float_min(a: f32, b:f32) -> f32{
-    if a.lt(&b){ 
-        return a;
-    }
-    b
-}
 
-fn get_ppuc(ref_id: u64, 
-            base_lease: u64, 
-            ref_ri_hist: &HashMap<u64,(u64,HashMap<u64,(u64,u64)>)>) -> Vec<PPUC>{
 
-    let ri_hist: Vec<(u64,u64)> = ref_ri_hist.iter().map(|(k,v)|(*k,v.0)).collect();
-    let total_count = ri_hist.iter().fold(0,|acc,(_k,v)| acc+v);
-    let mut hits = 0;
-    let mut head_cost = 0;
 
-    let mut lease_hit_table = HashMap::new();
-    let mut lease_cost_table = HashMap::new();
 
-    lease_hit_table.insert(0,0);
-    lease_cost_table.insert(0,0);
 
-    let mut ri_hist_clone = ri_hist.clone();
-    ri_hist_clone.sort_by(|a,b| a.0.cmp(&b.0));
 
-    for (ri,count) in ri_hist_clone.iter(){
-        hits += *count;
-        head_cost += *count * *ri ;
-        let tail_cost = (total_count - hits) * *ri ;
 
-        lease_hit_table.insert(*ri,hits);
-        lease_cost_table.insert(*ri,head_cost + tail_cost);
-    }
 
-    ri_hist_clone.iter().map(|(k,_v)| k).filter(|k| **k > base_lease).map(
-        |k| PPUC {
-            ppuc:((*lease_hit_table.get(k).unwrap() -*lease_hit_table.get(&base_lease).unwrap()) as f32/
-                  (*lease_cost_table.get(k).unwrap()-*lease_cost_table.get(&base_lease).unwrap())as f32),
-            lease: *k,
-            old_lease: base_lease,
-            ref_id: ref_id, 
-        }
-    ).collect()
-}
+
+
+
+
+
+
+
+
+
 
 
 #[cfg(test)]

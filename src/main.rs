@@ -20,11 +20,12 @@ fn main(){
     let cache_size = 128;
     let sample_rate = 256;
 
-    let verbose = false;
+    let verbose = true;
+    let debug   = false;
 
-    let (ri_hists,samples_per_phase) = cshel::build_ri_hists(matches.value_of("INPUT").unwrap());
-    let (leases, dual_leases) = cshel::gen_leases_c_shel(&ri_hists,cache_size,sample_rate,samples_per_phase,verbose).unwrap();
-    cshel::dump_leases(leases,dual_leases);
+    let (ri_hists,samples_per_phase) = cshel::io::build_ri_hists(matches.value_of("INPUT").unwrap());
+    let (leases, dual_leases) = cshel::lease_gen::c_shel(&ri_hists,cache_size,sample_rate,samples_per_phase,verbose,debug).unwrap();
+    cshel::io::dump_leases(leases,dual_leases);
 
 
 }
