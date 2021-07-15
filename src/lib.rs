@@ -219,7 +219,6 @@ mod helpers {
     }
 }
 
-
 //Core Algorithms
 pub mod lease_gen {
     
@@ -352,7 +351,7 @@ pub mod lease_gen {
         }
     }
 
-    fn get_phase_ref_cost(sample_rate: u64, phase: u64,ref_id: u64,old_lease: u64,new_lease: u64,ri_hists: &RIHists) -> u64 {
+    fn cshel_phase_ref_cost(sample_rate: u64, phase: u64,ref_id: u64,old_lease: u64,new_lease: u64,ri_hists: &RIHists) -> u64 {
         let mut old_cost = 0;
         let mut new_cost = 0;
         let ri_hist = ri_hists.ri_hists.get(&ref_id).unwrap();
@@ -364,31 +363,44 @@ pub mod lease_gen {
             };
 
             if ri <= old_lease {
-                old_cost += phase_head_cost * sample_rate;
+                old_cost += phase_head_cost;
             }
             if ri == old_lease {
-                old_cost += phase_tail_cost * sample_rate;
+                old_cost += phase_tail_cost;
             }
 
             if ri <= new_lease {
-                new_cost += phase_head_cost * sample_rate;
+                new_cost += phase_head_cost;
             }
             if ri == new_lease {
-                new_cost += phase_tail_cost * sample_rate;
+                new_cost += phase_tail_cost;
             }
         }
+        (new_cost - old_cost) * sample_rate   
+    }
 
+    fn shel_phase_ref_cost(sample_rate: u64, _phase: u64,ref_id: u64,old_lease: u64,new_lease: u64,ri_hists: &RIHists) -> u64 {
+        let ref_ri_hist : &HashMap<u64,(u64,HashMap<u64,(u64,u64)>)> = ri_hists.ri_hists.get(&ref_id).unwrap(); 
+        let ri_hist: Vec<(u64,u64)> = ref_ri_hist.iter().map(|(k,v)|(*k,v.0)).collect();
+        let mut old_cost = 0;
+        let mut new_cost = 0;
 
-        if new_cost < old_cost{
-            for (ri,tuple) in ri_hist{
-                println!(" | ri {}: count {}",ri, tuple.0);
-                for (phase_id,cost) in &tuple.1{
-                    println!(" | | phase {} head_cost {} tail_cost {}",phase_id,cost.0,cost.1);
-                }
+        for (ri,count) in ri_hist.iter(){
+            if *ri <= old_lease {
+                old_cost += *count * *ri;
             }
-            panic!();
+            else {
+                old_cost += *count * old_lease;
+            }
+
+            if *ri <= new_lease {
+                new_cost += *count * *ri;
+            }
+            else {
+                new_cost += *count * new_lease;
+            }
         }
-        new_cost - old_cost
+        (new_cost - old_cost ) * sample_rate
     }
 
     fn get_ppuc(ref_id: u64, 
@@ -428,7 +440,10 @@ pub mod lease_gen {
             }
         ).collect()
     }
-    pub fn c_shel(ri_hists : &RIHists, 
+
+
+    pub fn shel_cshel(cshel: bool,
+                  ri_hists : &RIHists, 
                   cache_size : u64, 
                   sample_rate : u64, 
                   samples_per_phase : HashMap<u64,u64>,
@@ -500,12 +515,20 @@ pub mod lease_gen {
             let mut acceptable_lease = true;
             let mut new_phase_ref_cost = HashMap::new(); 
             for (&phase,&current_cost) in cost_per_phase.iter(){
-                let new_cost = get_phase_ref_cost(sample_rate,
-                                                  phase,
-                                                  new_lease.ref_id,
-                                                  old_lease,
-                                                  new_lease.lease,
-                                                  &ri_hists);
+                let new_cost = match cshel{
+                    true => cshel_phase_ref_cost(sample_rate,
+                                                      phase,
+                                                      new_lease.ref_id,
+                                                      old_lease,
+                                                      new_lease.lease,
+                                                      &ri_hists),
+                    false => shel_phase_ref_cost(sample_rate,
+                                                      phase,
+                                                      new_lease.ref_id,
+                                                      old_lease,
+                                                      new_lease.lease,
+                                                      &ri_hists),
+                };
                 new_phase_ref_cost.insert(phase,new_cost);
                 if (new_cost + current_cost) > *budget_per_phase.get(&phase).unwrap() {
                     acceptable_lease = false;
@@ -598,25 +621,6 @@ pub mod lease_gen {
         }
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 #[cfg(test)]
 mod tests {
