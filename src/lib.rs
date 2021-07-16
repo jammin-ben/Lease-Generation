@@ -568,8 +568,11 @@ pub mod lease_gen {
                 for (&phase,&current_cost) in cost_per_phase.iter(){
                     let &phase_ref_cost   = new_phase_ref_cost.get(&phase).unwrap(); 
                     if phase_ref_cost > 0 {
+                        //OFF BY 1 ERROR BANDAID
                         if *budget_per_phase.get(&phase).unwrap() < current_cost{
-                            println!("
+                            let remaining_budget = *budget_per_phase.get(&phase).unwrap() - current_cost + 1; 
+                            alpha = super::helpers::float_min(alpha, remaining_budget as f32 / phase_ref_cost as f32);
+                            /*println!("
                             ERROR: current cost exceeds budget
                             *budget_per_phase.get(&phase).unwrap():  {}
                             currenc_cost:                            {}
@@ -577,11 +580,13 @@ pub mod lease_gen {
                             *budget_per_phase.get(&phase).unwrap(),
                             current_cost
                             );
-                            panic!();
+                            panic!();*/
                         }
+                        else{
 
-                        let remaining_budget = *budget_per_phase.get(&phase).unwrap() - current_cost; 
-                        alpha = super::helpers::float_min(alpha, remaining_budget as f32 / phase_ref_cost as f32);
+                            let remaining_budget = *budget_per_phase.get(&phase).unwrap() - current_cost; 
+                            alpha = super::helpers::float_min(alpha, remaining_budget as f32 / phase_ref_cost as f32);
+                        }
                     }
                 }
 
