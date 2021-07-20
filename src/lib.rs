@@ -141,26 +141,24 @@ pub mod io {
 
         (super::lease_gen::RIHists::new(ri_hists),samples_per_phase)
     }
-
     pub fn dump_leases(leases: HashMap<u64,u64>, dual_leases: HashMap<u64,(f32,u64)>) {
         println!("Dump formated leases");
+              let mut lease_vector: Vec<(u64,u64,u64,u64,f32)> = Vec::new();
         for (&phase_address,&lease) in leases.iter(){
+            let lease = if lease >0 {lease} else {1}; 
             let phase   = (phase_address & 0xFF000000)>>24;
             let address =  phase_address & 0x00FFFFFF;
             if dual_leases.contains_key(&phase_address){
-                println!("{:x}, {:x}, {:x}, {:x}, {}", 
-                         phase,
-                         address, 
-                         lease, 
-                         dual_leases.get(&phase_address).unwrap().1, 
-                         1.0 - dual_leases.get(&phase_address).unwrap().0);
+               lease_vector.push((phase,address,lease,dual_leases.get(&phase_address).unwrap().1,1.0-dual_leases.get(&phase_address).unwrap().0));
             }
             else{
-                println!("{:x}, {:x}, {:x}, 0, 1", 
-                         phase,
-                         address, 
-                         lease);
+                lease_vector.push((phase,address,lease,0, 1.0));
             }
+        }
+        lease_vector.sort_by_key(|a| a.0); //sort by phase
+        lease_vector.sort_by_key(|a| a.1); //sort by reference
+        for (phase, address, lease_short, lease_long, percentage) in lease_vector.iter(){
+            println!("{:x}, {:x}, {:x}, {:x}, {}",phase, address, lease_short, lease_long, percentage);
         }
     }
     
@@ -490,7 +488,7 @@ pub mod lease_gen {
 
         //initialize cost + budget
         for (&phase,&num) in samples_per_phase.iter(){
-            cost_per_phase.insert(phase, 1);  
+            cost_per_phase.insert(phase, 0);  
             budget_per_phase.insert(phase, num * cache_size * sample_rate);
         }
 
