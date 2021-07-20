@@ -37,6 +37,10 @@ pub mod io {
         for result in rdr.deserialize() {
             let sample: Sample = result.unwrap();
             let ri = u64::from_str_radix(&sample.ri,16).unwrap();
+            //if sample is negative, there is no reuse, so ignore
+            if ri>2147483647 {
+                continue;
+            }
             let mut time = sample.time;
             let phase_id_ref = u64::from_str_radix(&sample.phase_id_ref,16).unwrap();
 
@@ -92,6 +96,10 @@ pub mod io {
         for result in rdr.deserialize() {
             let sample: Sample = result.unwrap();
             let ri = u64::from_str_radix(&sample.ri,16).unwrap();
+            //if sample is negative, there is no reuse, so ignore
+            if ri>2147483647 {
+                continue;
+            }
             let time = sample.time;
             let phase_id_ref = u64::from_str_radix(&sample.phase_id_ref,16).unwrap();
             let next_phase_tuple = match super::helpers::binary_search(&phase_transitions,time-ri){
@@ -114,6 +122,10 @@ pub mod io {
         for result in rdr.deserialize() {
             let sample: Sample = result.unwrap();
             let ri = u64::from_str_radix(&sample.ri,16).unwrap();
+            //if sample is negative, there is no reuse, so ignore
+            if ri>2147483647 {
+                continue;
+            }
             let time = sample.time;
             let phase_id_ref = u64::from_str_radix(&sample.phase_id_ref,16).unwrap();
             let next_phase_tuple = match super::helpers::binary_search(&phase_transitions,time-ri){
@@ -131,6 +143,7 @@ pub mod io {
     }
 
     pub fn dump_leases(leases: HashMap<u64,u64>, dual_leases: HashMap<u64,(f32,u64)>) {
+        println!("Dump formated leases");
         for (&phase_address,&lease) in leases.iter(){
             let phase   = (phase_address & 0xFF000000)>>24;
             let address =  phase_address & 0x00FFFFFF;
@@ -477,7 +490,7 @@ pub mod lease_gen {
 
         //initialize cost + budget
         for (&phase,&num) in samples_per_phase.iter(){
-            cost_per_phase.insert(phase, 0);  
+            cost_per_phase.insert(phase, 1);  
             budget_per_phase.insert(phase, num * cache_size * sample_rate);
         }
 
@@ -529,6 +542,7 @@ pub mod lease_gen {
                                                       new_lease.lease,
                                                       &ri_hists),
                 };
+
                 new_phase_ref_cost.insert(phase,new_cost);
                 if (new_cost + current_cost) > *budget_per_phase.get(&phase).unwrap() {
                     acceptable_lease = false;
@@ -568,37 +582,26 @@ pub mod lease_gen {
                 for (&phase,&current_cost) in cost_per_phase.iter(){
                     let &phase_ref_cost   = new_phase_ref_cost.get(&phase).unwrap(); 
                     if phase_ref_cost > 0 {
-                        //OFF BY 1 ERROR BANDAID
-                        if *budget_per_phase.get(&phase).unwrap() < current_cost{
-                            let remaining_budget = *budget_per_phase.get(&phase).unwrap() - current_cost + 1; 
-                            alpha = super::helpers::float_min(alpha, remaining_budget as f32 / phase_ref_cost as f32);
-                            /*println!("
-                            ERROR: current cost exceeds budget
-                            *budget_per_phase.get(&phase).unwrap():  {}
-                            currenc_cost:                            {}
-                            ",
-                            *budget_per_phase.get(&phase).unwrap(),
-                            current_cost
-                            );
-                            panic!();*/
-                        }
-                        else{
-
                             let remaining_budget = *budget_per_phase.get(&phase).unwrap() - current_cost; 
                             alpha = super::helpers::float_min(alpha, remaining_budget as f32 / phase_ref_cost as f32);
                         }
                     }
-                }
+                
 
                 if alpha > 0.0{
                     //update cache use
                     for phase in &phase_ids{
-                        cost_per_phase.insert(**phase, 
+                           cost_per_phase.insert(**phase, 
                                               cost_per_phase.get(*phase).unwrap() + 
                                               (*new_phase_ref_cost.get(&phase).unwrap() 
                                                     as f32 * alpha).round() as u64);
+                           if cost_per_phase.get(*phase).unwrap()>budget_per_phase.get(*phase).unwrap(){
+                             cost_per_phase.insert(**phase,*budget_per_phase.get(*phase).unwrap());
+                           }
                     }
+
                 }
+            
 
                 //update dual lease hashmap
                 //inserting with alpha=0 is still valuable, since it tells us to 
