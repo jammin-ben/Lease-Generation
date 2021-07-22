@@ -15,15 +15,22 @@ fn main(){
             .multiple(true)
             .takes_value(true)
             .about("Sets the output file name"))
+        .arg(Arg::new("CACHE_SIZE")
+            .short('s')
+            .multiple(false)
+            .takes_value(true)
+            .required(true))
         .get_matches();
 
-    let cache_size = 128;
+    let s  = matches.value_of("CACHE_SIZE").unwrap().to_string();
+    let cache_size=s.parse::<u64>().unwrap();
+
     let sample_rate = 256;
 
-    let verbose = true;
-    let debug   = false;
 
-    let cshel = true;
+    let verbose = true;
+    let debug   = true;
+    let cshel   = true;
 
     let (ri_hists,samples_per_phase) = cshel::io::build_ri_hists(matches.value_of("INPUT").unwrap());
     let (leases, dual_leases, predicted_misses) = cshel::lease_gen::shel_cshel(cshel,&ri_hists,cache_size,sample_rate,samples_per_phase,verbose,debug).unwrap();

@@ -38,6 +38,10 @@ pub mod io {
         for result in rdr.deserialize() {
             let sample: Sample = result.unwrap();
             let ri = u64::from_str_radix(&sample.ri,16).unwrap();
+            //if sample is negative, there is no reuse, so ignore
+            if ri>2147483647 {
+                continue;
+            }
             let mut time = sample.time;
             let phase_id_ref = u64::from_str_radix(&sample.phase_id_ref,16).unwrap();
 
@@ -92,6 +96,10 @@ pub mod io {
         for result in rdr.deserialize() {
             let sample: Sample = result.unwrap();
             let ri = u64::from_str_radix(&sample.ri,16).unwrap();
+            //if sample is negative, there is no reuse, so ignore
+            if ri>2147483647 {
+                continue;
+            }
             let time = sample.time;
             let phase_id_ref = u64::from_str_radix(&sample.phase_id_ref,16).unwrap();
             let next_phase_tuple = match super::helpers::binary_search(&phase_transitions,time-ri){
@@ -113,6 +121,10 @@ pub mod io {
         for result in rdr.deserialize() {
             let sample: Sample = result.unwrap();
             let ri = u64::from_str_radix(&sample.ri,16).unwrap();
+            //if sample is negative, there is no reuse, so ignore
+            if ri>2147483647 {
+                continue;
+            }
             let time = sample.time;
             let phase_id_ref = u64::from_str_radix(&sample.phase_id_ref,16).unwrap();
             let next_phase_tuple = match super::helpers::binary_search(&phase_transitions,time-ri){
@@ -128,25 +140,24 @@ pub mod io {
 
         (super::lease_gen::RIHists::new(ri_hists),samples_per_phase)
     }
-
     pub fn dump_leases(leases: HashMap<u64,u64>, dual_leases: HashMap<u64,(f32,u64)>) {
+        println!("Dump formated leases");
+              let mut lease_vector: Vec<(u64,u64,u64,u64,f32)> = Vec::new();
         for (&phase_address,&lease) in leases.iter(){
+            let lease = if lease >0 {lease} else {1}; 
             let phase   = (phase_address & 0xFF000000)>>24;
             let address =  phase_address & 0x00FFFFFF;
             if dual_leases.contains_key(&phase_address){
-                println!("{:x}, {:x}, {:x}, {:x}, {}", 
-                         phase,
-                         address, 
-                         lease, 
-                         dual_leases.get(&phase_address).unwrap().1, 
-                         1.0 - dual_leases.get(&phase_address).unwrap().0);
+               lease_vector.push((phase,address,lease,dual_leases.get(&phase_address).unwrap().1,1.0-dual_leases.get(&phase_address).unwrap().0));
             }
             else{
-                println!("{:x}, {:x}, {:x}, 0, 1", 
-                         phase,
-                         address, 
-                         lease);
+                lease_vector.push((phase,address,lease,0, 1.0));
             }
+        }
+        lease_vector.sort_by_key(|a| a.0); //sort by phase
+        lease_vector.sort_by_key(|a| a.1); //sort by reference
+        for (phase, address, lease_short, lease_long, percentage) in lease_vector.iter(){
+            println!("{:x}, {:x}, {:x}, {:x}, {}",phase, address, lease_short, lease_long, percentage);
         }
     }
     
@@ -538,6 +549,7 @@ pub mod lease_gen {
                                                       new_lease.lease,
                                                       &ri_hists),
                 };
+
                 new_phase_ref_cost.insert(phase,new_cost);
                 if (new_cost + current_cost) > *budget_per_phase.get(&phase).unwrap() {
                     acceptable_lease = false;
@@ -604,9 +616,13 @@ pub mod lease_gen {
                     //update cache use
                     for phase in &phase_ids{
                         cost_per_phase.insert(**phase, 
-                                              cost_per_phase.get(*phase).unwrap() + 
-                                              (*new_phase_ref_cost.get(&phase).unwrap() 
-                                                    as f32 * alpha).floor() as u64);
+                                          cost_per_phase.get(*phase).unwrap() + 
+                                            (*new_phase_ref_cost.get(&phase).unwrap() as f32 * alpha).round()
+                                              as u64);
+                        //fix floating point precision error leading to "overallocation"
+                        if cost_per_phase.get(*phase).unwrap()>budget_per_phase.get(*phase).unwrap(){
+                            cost_per_phase.insert(**phase,*budget_per_phase.get(*phase).unwrap());
+                        }
                     }
                 }
 
