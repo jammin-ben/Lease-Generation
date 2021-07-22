@@ -26,8 +26,9 @@ fn main(){
     let cshel = true;
 
     let (ri_hists,samples_per_phase) = cshel::io::build_ri_hists(matches.value_of("INPUT").unwrap());
-    let (leases, dual_leases) = cshel::lease_gen::shel_cshel(cshel,&ri_hists,cache_size,sample_rate,samples_per_phase,verbose,debug).unwrap();
+    let (leases, dual_leases, predicted_misses) = cshel::lease_gen::shel_cshel(cshel,&ri_hists,cache_size,sample_rate,samples_per_phase,verbose,debug).unwrap();
+    println!("Dump predicted miss count (no contention misses): 
+{}",predicted_misses);
+    println!("Dump leases");
     cshel::io::dump_leases(leases,dual_leases);
-
-
 }

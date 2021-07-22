@@ -10,6 +10,7 @@ pub mod io {
     use std::collections::BinaryHeap;
     use std::collections::HashMap;
 
+
     #[derive(Deserialize)]
     #[derive(Debug)]
     struct Sample{
@@ -66,7 +67,6 @@ pub mod io {
         sorted_transitions.iter().map(|&x| (*(x.0),*(x.1))).collect()
     }
 
-
     //Build ri hists in the following form
     //{ref_id,
     //  {ri,
@@ -104,7 +104,6 @@ pub mod io {
             let phase_id = (phase_id_ref & 0xFF000000)>>24;
             *samples_per_phase.entry(phase_id).or_insert_with(|| 0)+=1;
         }
-
 
         let mut rdr = csv::ReaderBuilder::new()
             .has_headers(false)
@@ -233,7 +232,7 @@ pub mod lease_gen {
     impl RIHists {
         pub fn new(ri_hists_input: HashMap<u64,HashMap<u64,(u64,HashMap<u64,(u64,u64)>)>>) -> Self{
             RIHists{
-                ri_hists: ri_hists_input, 
+                ri_hists: ri_hists_input,
             }
         }
 
@@ -260,6 +259,7 @@ pub mod lease_gen {
         lease: u64,
         old_lease: u64,
         ref_id: u64,
+        new_hits: u64,
     }
     impl PartialOrd for PPUC {
         fn partial_cmp(&self, other: &Self) -> Option<Ordering>{
@@ -379,8 +379,14 @@ pub mod lease_gen {
         (new_cost - old_cost) * sample_rate   
     }
 
-    fn shel_phase_ref_cost(sample_rate: u64, _phase: u64,ref_id: u64,old_lease: u64,new_lease: u64,ri_hists: &RIHists) -> u64 {
-        let ref_ri_hist : &HashMap<u64,(u64,HashMap<u64,(u64,u64)>)> = ri_hists.ri_hists.get(&ref_id).unwrap(); 
+    fn shel_phase_ref_cost(sample_rate: u64, 
+                           _phase:      u64,
+                           ref_id:      u64,
+                           old_lease:   u64,
+                           new_lease:   u64,
+                           ri_hists: &RIHists) -> u64 {
+        let ref_ri_hist : &HashMap<u64,(u64,HashMap<u64,(u64,u64)>)> = 
+            ri_hists.ri_hists.get(&ref_id).unwrap(); 
         let ri_hist: Vec<(u64,u64)> = ref_ri_hist.iter().map(|(k,v)|(*k,v.0)).collect();
         let mut old_cost = 0;
         let mut new_cost = 0;
@@ -437,10 +443,10 @@ pub mod lease_gen {
                 lease: *k,
                 old_lease: base_lease,
                 ref_id: ref_id, 
+                new_hits: *lease_hit_table.get(k).unwrap() - *lease_hit_table.get(&base_lease).unwrap(),
             }
         ).collect()
     }
-
 
     pub fn shel_cshel(cshel: bool,
                   ri_hists : &RIHists, 
@@ -448,13 +454,15 @@ pub mod lease_gen {
                   sample_rate : u64, 
                   samples_per_phase : HashMap<u64,u64>,
                   verbose: bool,
-                  debug: bool) -> Option<(HashMap<u64,u64>,HashMap<u64,(f32,u64)>)>{
+                  debug: bool) -> Option<(HashMap<u64,u64>,HashMap<u64,(f32,u64)>,u64)>{
 
         let mut new_lease: PPUC;
         let mut cost_per_phase = HashMap::new();
         let mut budget_per_phase = HashMap::new();
         let mut leases = HashMap::new(); //{ri, lease}
         let mut dual_leases : HashMap<u64,(f32,u64)>= HashMap::new(); //{ri, (alpha, long_lease)}
+        let mut num_hits : u64 = 0;
+        let mut trace_length : u64 = 0;
         
         let phase_ids: Vec<&u64> = samples_per_phase.keys().collect();
 
@@ -479,6 +487,7 @@ pub mod lease_gen {
         for (&phase,&num) in samples_per_phase.iter(){
             cost_per_phase.insert(phase, 0);  
             budget_per_phase.insert(phase, num * cache_size * sample_rate);
+            trace_length += num * sample_rate;
         }
 
         if verbose{
@@ -498,7 +507,7 @@ pub mod lease_gen {
         loop {
             new_lease = match ppuc_tree.pop(){
                 Some(i) => i,
-                None => return Some((leases,dual_leases)),
+                None => return Some((leases,dual_leases,trace_length - num_hits)),
             };
 
             //continue to pop until we have a ppuc with the right base_lease
@@ -539,8 +548,9 @@ pub mod lease_gen {
             }
 
             if acceptable_lease {
+                num_hits += new_lease.new_hits * sample_rate;
                 //update cache use
-                for phase in &phase_ids{
+                for phase in &phase_ids {
                     cost_per_phase.insert(**phase, 
                                           cost_per_phase.get(*phase).unwrap() + new_phase_ref_cost.get(phase).unwrap()); 
                 }
@@ -556,9 +566,10 @@ pub mod lease_gen {
                 }
 
                 if verbose {
-                    println!("Assigned lease {:x} to reference ({},{:x})", 
+                    println!("Assigned lease {:x} to reference ({},{:x}). Predicted miss count : {}", 
                              new_lease.lease, (new_lease.ref_id & 0xFF000000) >> 24, 
-                             new_lease.ref_id & 0x00FFFFFF);
+                             new_lease.ref_id & 0x00FFFFFF,
+                             trace_length - num_hits);
                 }
             }
 
@@ -568,11 +579,8 @@ pub mod lease_gen {
                 for (&phase,&current_cost) in cost_per_phase.iter(){
                     let &phase_ref_cost   = new_phase_ref_cost.get(&phase).unwrap(); 
                     if phase_ref_cost > 0 {
-                        //OFF BY 1 ERROR BANDAID
                         if *budget_per_phase.get(&phase).unwrap() < current_cost{
-                            let remaining_budget = *budget_per_phase.get(&phase).unwrap() - current_cost + 1; 
-                            alpha = super::helpers::float_min(alpha, remaining_budget as f32 / phase_ref_cost as f32);
-                            /*println!("
+                            println!("
                             ERROR: current cost exceeds budget
                             *budget_per_phase.get(&phase).unwrap():  {}
                             currenc_cost:                            {}
@@ -580,23 +588,25 @@ pub mod lease_gen {
                             *budget_per_phase.get(&phase).unwrap(),
                             current_cost
                             );
-                            panic!();*/
+                            panic!();
                         }
-                        else{
 
-                            let remaining_budget = *budget_per_phase.get(&phase).unwrap() - current_cost; 
-                            alpha = super::helpers::float_min(alpha, remaining_budget as f32 / phase_ref_cost as f32);
-                        }
+                        let remaining_budget = *budget_per_phase.get(&phase).unwrap() - current_cost; 
+                        alpha = super::helpers::float_min(alpha, 
+                                                          remaining_budget as f32 / 
+                                                            phase_ref_cost as f32);
                     }
                 }
 
                 if alpha > 0.0{
+                    //update hits
+                    num_hits += (new_lease.new_hits as f32 * sample_rate as f32 * alpha).round() as u64;
                     //update cache use
                     for phase in &phase_ids{
                         cost_per_phase.insert(**phase, 
                                               cost_per_phase.get(*phase).unwrap() + 
                                               (*new_phase_ref_cost.get(&phase).unwrap() 
-                                                    as f32 * alpha).round() as u64);
+                                                    as f32 * alpha).floor() as u64);
                     }
                 }
 
@@ -606,11 +616,12 @@ pub mod lease_gen {
                 dual_leases.insert(new_lease.ref_id,(alpha,new_lease.lease));
 
                 if verbose {
-                    println!("Assigned dual lease ({:x},{}) to reference ({},{:x})",
+                    println!("Assigned dual lease ({:x},{}) to reference ({},{:x}). Predicted miss count: {}", 
                               new_lease.lease, 
                               alpha, 
                               (new_lease.ref_id & 0xFF000000) >> 24,
-                              new_lease.ref_id & 0x00FFFFFF);
+                              new_lease.ref_id & 0x00FFFFFF,
+                              trace_length - num_hits);
                 }
             }
             if verbose & debug { 
