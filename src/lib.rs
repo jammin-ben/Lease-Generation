@@ -391,11 +391,16 @@ pub mod lease_gen {
     }
 
     fn shel_phase_ref_cost(sample_rate: u64, 
-                           _phase:      u64,
+                           phase:      u64,
                            ref_id:      u64,
                            old_lease:   u64,
                            new_lease:   u64,
                            ri_hists: &RIHists) -> u64 {
+
+        if phase != (ref_id & 0xFF000000) >> 24 {
+            return 0;
+        }
+
         let ref_ri_hist : &HashMap<u64,(u64,HashMap<u64,(u64,u64)>)> = 
             ri_hists.ri_hists.get(&ref_id).unwrap(); 
         let ri_hist: Vec<(u64,u64)> = ref_ri_hist.iter().map(|(k,v)|(*k,v.0)).collect();
