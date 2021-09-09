@@ -598,11 +598,25 @@ pub mod lease_gen {
        for key in binned_freqs.bin_freqs.get(&0).unwrap().keys(){
             addrs.push(*key);
        }
-      
+       
        
         let mut num_full_bins;
         let mut leases:HashMap<u64,u64>=addrs.iter().map(|&c| (c,0_u64)).collect::<HashMap<_,_>>();
         let mut bin_saturation:HashMap<u64,f64>=bin_endpoints.iter().map(|&c| (c,0_f64)).collect::<HashMap<_,_>>();
+        //make all references have lease of 1
+        for addr in addrs{
+            leases.insert(addr,1);
+            //update saturation to take into account each reference having a lease of 1
+            for (bin,_sat) in &bin_saturation.clone(){
+                if  binned_ris.bin_ri_distribution.get(bin).unwrap().contains_key(&addr){
+                    let  old_avg_lease=get_avg_lease(binned_ris,&addr,*bin,*leases.get(&addr).unwrap());
+                    let avg_lease =get_avg_lease(binned_ris,&addr,*bin,1);
+                    let impact= (avg_lease as f64-old_avg_lease as f64)*&(sample_rate as f64);
+                    bin_saturation.insert(*bin,impact);
+                }
+            }
+       }
+        
         let mut num_unsuitable:u64;
         let mut ppuc_tree = BinaryHeap::new();
         let mut impact_dict:HashMap<u64,f64>=HashMap::new();
@@ -621,13 +635,21 @@ pub mod lease_gen {
                 ppuc_tree.push(*ppuc);
             }
         }
-            
+        //  let mut k = ppuc_tree.clone();
+        // for r in &ppuc_tree{
+        //     println!("ppuc: {:?}",k.pop());
+        // }
     
         loop {
              new_lease = match ppuc_tree.pop(){
                 Some(i) => i,
-                None => return Some((leases,dual_leases,trace_length - num_hits)),
+                None => return Some((leases,dual_leases, num_hits)),
             };
+            //all references start with a lease of 1, so need to do this
+            if new_lease.lease==1{
+                num_hits += new_lease.new_hits * sample_rate; //need to adjust hits
+                continue;
+            }
             neg_impact=false;
             num_unsuitable=0;
             let addr= new_lease.ref_id;
@@ -705,7 +727,7 @@ pub mod lease_gen {
                 }
                 
             }
-            
+
     }
 }
 
