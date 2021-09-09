@@ -26,10 +26,10 @@ fn main(){
     let cache_size=s.parse::<u64>().unwrap();
     let leases:HashMap<u64,u64>;
     let dual_leases:HashMap<u64,(f32,u64)>;
-    let predicted_misses:u64;
+    let lease_hits:HashMap<u64,HashMap<u64,u64>>;
     let sample_rate = 256;
     let perl_bin_num =5;
-   
+   let trace_length: u64;
     let verbose = true;
     let debug   = true;
     let cshel   = false;
@@ -37,20 +37,21 @@ fn main(){
     let (binned_ri_distributions,binned_freqs,bin_width) = cshel::io::get_binned_hists(matches.value_of("INPUT").unwrap(),perl_bin_num);
       let (ri_hists,samples_per_phase) = cshel::io::build_ri_hists(matches.value_of("INPUT").unwrap(),cshel);
    if PRL{
-    let (x, y, z) = cshel::lease_gen::PRL(bin_width,&ri_hists,&binned_ri_distributions,&binned_freqs,256,cache_size,samples_per_phase).unwrap();
-    leases=x;
-    dual_leases=y;
-    predicted_misses=z;
+    let (leases_temp, dual_leases_temp, lease_hits_temp,trace_length_temp) = cshel::lease_gen::PRL(bin_width,&ri_hists,&binned_ri_distributions,&binned_freqs,256,cache_size,samples_per_phase).unwrap();
+    leases=leases_temp;
+    dual_leases=dual_leases_temp;
+    lease_hits=lease_hits_temp;
+    trace_length=trace_length_temp;
    }
    else{
-   let (x, y, z) = cshel::lease_gen::shel_cshel(cshel,&ri_hists,cache_size,sample_rate,samples_per_phase,verbose,debug).unwrap();
-   leases=x;
-    dual_leases=y;
-    predicted_misses=z;
+   let (leases_temp, dual_leases_temp, lease_hits_temp,trace_length_temp) = cshel::lease_gen::shel_cshel(cshel,&ri_hists,cache_size,sample_rate,samples_per_phase,verbose,debug).unwrap();
+   leases=leases_temp;
+    dual_leases=dual_leases_temp;
+    lease_hits=lease_hits_temp;
+    trace_length=trace_length_temp;
 }
-    println!("Dump predicted miss count (no contention misses): 
-{}",predicted_misses);
-    cshel::io::dump_leases(leases,dual_leases);
+   
+    cshel::io::dump_leases(leases,dual_leases,lease_hits,trace_length);
 }
 
 
