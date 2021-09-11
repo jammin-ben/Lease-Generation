@@ -151,7 +151,7 @@ pub mod io {
     
     // Tail cost refers to the accumulation of cost from reuses greater than ri.
     // This cost may span a phase boundary 
-    pub fn build_ri_hists(input_file:&str,cshel:bool) -> (super::lease_gen::RIHists,HashMap<u64,u64>){
+    pub fn build_ri_hists(input_file:&str) -> (super::lease_gen::RIHists,HashMap<u64,u64>){
         let phase_transitions = build_phase_transitions(input_file);
         let mut rdr = csv::ReaderBuilder::new()
             .has_headers(false)
@@ -188,7 +188,7 @@ pub mod io {
             .from_path(input_file)
             .unwrap();
         //second pass for tail costs
-        if cshel {
+       
         for result in rdr.deserialize() {
             let sample: Sample = result.unwrap();
             let ri = u64::from_str_radix(&sample.ri,16).unwrap();
@@ -208,7 +208,8 @@ pub mod io {
                                      time,
                                      next_phase_tuple);
         }
-    }
+    
+  
         (super::lease_gen::RIHists::new(ri_hists),samples_per_phase)
     }
     pub fn dump_leases(leases: HashMap<u64,u64>, dual_leases: HashMap<u64,(f32,u64)>,lease_hits:HashMap<u64,HashMap<u64,u64>>,trace_length:u64) {
@@ -228,17 +229,20 @@ pub mod io {
         } 
         lease_vector.sort_by_key(|a| (a.0,a.1)); //sort by phase and then by reference
         //get number of predicted misses
-      
         for (_phase, address, lease_short, lease_long, percentage) in lease_vector.iter(){
-            //if there's no dual lease then the second terms contribution will be zero
-            //we don't have any actual numbers for the number of hits caused by a base lease of 1
-            //kernel will panic without this if
-            if lease_hits.get(address).unwrap().get(lease_short)!=None{
-                num_hits+=*lease_hits.get(address).unwrap().get(lease_short).unwrap();
+            
+            //we are assuming that our sampling captures all RIS by assuming the distribution is normal
+            //thus if an RI for a reference didn't occur during runtime (i.e., the base lease of 1 that all references get) 
+            //we can assume the number of hits it gets is zero, and moreover, even if that reuse interval does happen, we have no way
+            //of knowing how many hits so we just ignore it. 
+            
+           if lease_hits.get(address).unwrap().get(lease_short)!=None{
+                num_hits+=(*lease_hits.get(address).unwrap().get(lease_short).unwrap() as f32 *(percentage)).round() as u64;
             }
             if lease_hits.get(address).unwrap().get(lease_long)!=None{
-                num_hits+=(*lease_hits.get(address).unwrap().get(lease_long).unwrap() as f32 *(1.0-percentage)) as u64;
+                num_hits+=(*lease_hits.get(address).unwrap().get(lease_long).unwrap() as f32 *(1.0-percentage)).round() as u64;
             }
+            
 
          }
          println!("Dump predicted miss count (no contention misses): {}",trace_length-num_hits*256);
@@ -505,11 +509,12 @@ pub mod lease_gen {
                 new_cost += phase_tail_cost;
             }
         }
+       
         (new_cost - old_cost) * sample_rate   
     }
 
     fn shel_phase_ref_cost(sample_rate: u64, 
-                           _phase:      u64,
+                           phase:      u64,
                            ref_id:      u64,
                            old_lease:   u64,
                            new_lease:   u64,
@@ -519,7 +524,9 @@ pub mod lease_gen {
         let ri_hist: Vec<(u64,u64)> = ref_ri_hist.iter().map(|(k,v)|(*k,v.0)).collect();
         let mut old_cost = 0;
         let mut new_cost = 0;
-
+        if phase != (ref_id & 0xFF000000) >> 24 {
+            return 0;
+        }
         for (ri,count) in ri_hist.iter(){
             if *ri <= old_lease {
                 old_cost += *count * *ri;
@@ -550,12 +557,13 @@ pub mod lease_gen {
         let mut lease_hit_table = HashMap::new();
         let mut lease_cost_table = HashMap::new();
 
-        lease_hit_table.insert(0,0);
-        lease_cost_table.insert(0,0);
+        //prevent kernel panic for a base lease that doesn't correspond to sampled ri for a reference
+        lease_hit_table.insert(base_lease,0);
+        lease_cost_table.insert(base_lease,0);
 
         let mut ri_hist_clone = ri_hist.clone();
         ri_hist_clone.sort_by(|a,b| a.0.cmp(&b.0));
-
+        
         for (ri,count) in ri_hist_clone.iter(){
             hits += *count;
             head_cost += *count * *ri ;
@@ -575,6 +583,7 @@ pub mod lease_gen {
                 new_hits: *lease_hit_table.get(k).unwrap() - *lease_hit_table.get(&base_lease).unwrap(),
             }
         ).collect()
+
     }
      pub fn get_avg_lease(distribution:&BinnedRIs
                           , addr: &u64, bin: u64,lease: u64) ->u64{ 
@@ -590,11 +599,6 @@ pub mod lease_gen {
         return total;
 
      }
-
-
-                          
-
-    
     pub fn PRL(bin_width : u64,
                 ri_hists : &RIHists,
                  binned_ris: &BinnedRIs,
@@ -609,6 +613,7 @@ pub mod lease_gen {
         let mut trace_length : u64=0;
         let bin_target:u64=bin_width*cache_size;
         let mut bin_endpoints:Vec<u64>=Vec::new();
+        println!("bin_width:  {}",bin_width);
        for key in binned_freqs.bin_freqs.keys(){
             bin_endpoints.push(*key);
        }
@@ -654,10 +659,7 @@ pub mod lease_gen {
                 ppuc_tree.push(*ppuc);
             }
         }
-        //   let mut k = ppuc_tree.clone();
-        // for _r in &ppuc_tree{
-        //     println!("ppuc: {:?}",k.pop());
-        //  }
+        
     
         loop {
              new_lease = match ppuc_tree.pop(){
@@ -673,7 +675,7 @@ pub mod lease_gen {
             neg_impact=false;
             num_unsuitable=0;
             let addr= new_lease.ref_id;
-           // println!("assigning lease: {:?} to reference {:?}",new_lease.lease, addr);
+           
             for (bin,_sat) in &bin_saturation{
                 let mut impact:f64 =0.0;
                
@@ -704,11 +706,16 @@ pub mod lease_gen {
             }
             if num_unsuitable<1{
                 leases.insert(addr,new_lease.lease);
+                 let mut print_string:String=String::new();
                 for (bin,_sat) in &bin_saturation.clone(){
                      if  binned_ris.bin_ri_distribution.get(bin).unwrap().contains_key(&addr){
                         bin_saturation.insert(*bin,bin_saturation.get(bin).unwrap()+impact_dict.get(bin).unwrap());
                     }
+                    print_string=format!("{:} {1:.5}",print_string,&(bin_saturation.get(bin).unwrap()/bin_width as f64));
+                   
                 }
+                 println!("assigning lease: {:x} to reference {:x}",new_lease.lease, addr);
+                 println!("Average cache occupancy per bin: [{:}]",print_string);
             }
             else {
                 num_full_bins=0;
@@ -737,12 +744,17 @@ pub mod lease_gen {
                
                 if acceptable_ratio>0.0{
                     dual_leases.insert(addr,(acceptable_ratio as f32,new_lease.lease));
-                        
+                        let mut print_string:String=String::new();
                     for (bin,_sat) in &bin_saturation.clone(){
+
                         if  binned_ris.bin_ri_distribution.get(bin).unwrap().contains_key(&addr){
                         bin_saturation.insert(*bin,bin_saturation.get(bin).unwrap()+impact_dict.get(bin).unwrap()*acceptable_ratio);
                         }
+                        print_string=format!("{:} {1:.5}",print_string,&(bin_saturation.get(bin).unwrap()/bin_width as f64));
+                   
                     }
+                    println!("Assigning dual lease {:x} to address {:x} with percentage: {}",new_lease.lease,addr,acceptable_ratio);
+                    println!("Average cache occupancy per bin: [{:}]",print_string);
                 }
                 
             }
@@ -765,6 +777,7 @@ pub mod lease_gen {
         let mut dual_leases : HashMap<u64,(f32,u64)>= HashMap::new(); //{ref_id, (alpha, long_lease)}
         let mut trace_length : u64 = 0;
         let mut lease_hits=HashMap::new();
+        let mut dual_lease_phases: Vec<u64>=Vec::new();
         
         let phase_ids: Vec<&u64> = samples_per_phase.keys().collect();
 
@@ -784,15 +797,21 @@ pub mod lease_gen {
                 ppuc_tree.push(*ppuc);
             }
         }
-        
-          let mut k = ppuc_tree.clone();
-        for _r in &ppuc_tree{
-            println!("ppuc: {:?}",k.pop());
-         }
-       
+       // get lease hits assuming a base lease of 0
+        for _r in ppuc_tree.clone(){
+            let lease= ppuc_tree.pop().unwrap();
+            lease_hits.entry(lease.ref_id&0x00FFFFFF).or_insert(HashMap::new()).entry(lease.lease).or_insert(lease.new_hits);
+      }
+        //reinitallize ppuc tree, assuming a base lease of 1
+        for (&ref_id, ri_hist) in ri_hists.ri_hists.iter(){
+            let ppuc_vec = get_ppuc(ref_id,1,ri_hist);
+            for ppuc in ppuc_vec.iter(){
+                ppuc_tree.push(*ppuc);
+            }
+        }
+
         //initialize cost + budget
         for (&phase,&num) in samples_per_phase.iter(){
-            cost_per_phase.insert(phase, 0);  
             budget_per_phase.insert(phase, num * cache_size * sample_rate);
             trace_length += num * sample_rate;
         }
@@ -806,25 +825,48 @@ pub mod lease_gen {
             budget_per_phase);
         }
 
-        //initialize leases
-        for (&ref_id, _ ) in ri_hists.ri_hists.iter(){
-            leases.insert(ref_id,0);
-        }
+        //initialize leases to a default value of 1
+         for (&ref_id, _ ) in ri_hists.ri_hists.iter(){
+            leases.insert(ref_id,1);
+              let phase=(ref_id&0xFF000000)>>24;
+            // get cost of assigning a lease of 1
+             let new_cost = match cshel{
+                      true => cshel_phase_ref_cost(sample_rate,
+                                                        phase,
+                                                        ref_id,
+                                                        0,
+                                                        1,
+                                                        &ri_hists),
+                      false => shel_phase_ref_cost(sample_rate,
+                                                        phase,
+                                                        ref_id,
+                                                        0,
+                                                        1,
+                                                        &ri_hists),
+              };
+            
+             *cost_per_phase.entry(phase).or_insert(0)+=new_cost;
+         }
+         println!("costs per phase{:?}",cost_per_phase);
+
 
         loop {
             new_lease = match ppuc_tree.pop(){
                 Some(i) => i,
                 None => return Some((leases,dual_leases,lease_hits,trace_length)),
             };
-             lease_hits.entry(new_lease.ref_id).or_insert(HashMap::new()).entry(new_lease.lease).or_insert(new_lease.new_hits);
-            //continue to pop until we have a ppuc with the right base_lease
+            
+           
+             //continue to pop until we have a ppuc with the right base_lease
             if new_lease.old_lease != *leases.get(&new_lease.ref_id).unwrap(){
                 continue;
             }
+            //phase lease assignment ends with dual lease, so skip references from phases that already have dual leases
 
-            if dual_leases.contains_key(&new_lease.ref_id){
+             if   dual_lease_phases.contains(&((new_lease.ref_id & 0xFF000000)>>24)){
                 continue;
-            }
+             }
+           
 
             let old_lease = *leases.get(&new_lease.ref_id).unwrap();
             //check for capacity
@@ -924,6 +966,7 @@ pub mod lease_gen {
                 //inserting with alpha=0 is still valuable, since it tells us to 
                 //ignore further lease increases of that reference. 
                 dual_leases.insert(new_lease.ref_id,(alpha,new_lease.lease));
+                dual_lease_phases.push((new_lease.ref_id & 0xFF000000) >> 24);
 
                 if verbose {
                     println!("Assigned dual lease ({:x},{}) to reference ({},{:x}).", 

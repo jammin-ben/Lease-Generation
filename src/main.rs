@@ -20,6 +20,7 @@ fn main(){
             .multiple(false)
             .takes_value(true)
             .required(true))
+        .arg(Arg::new("CACHE_SIZE"))
         .get_matches();
 
     let s  = matches.value_of("CACHE_SIZE").unwrap().to_string();
@@ -35,7 +36,7 @@ fn main(){
     let cshel   = false;
     let PRL =true;
     let (binned_ri_distributions,binned_freqs,bin_width) = cshel::io::get_binned_hists(matches.value_of("INPUT").unwrap(),perl_bin_num);
-      let (ri_hists,samples_per_phase) = cshel::io::build_ri_hists(matches.value_of("INPUT").unwrap(),cshel);
+      let (ri_hists,samples_per_phase) = cshel::io::build_ri_hists(matches.value_of("INPUT").unwrap());
    if PRL{
     let (leases_temp, dual_leases_temp, lease_hits_temp,trace_length_temp) = cshel::lease_gen::PRL(bin_width,&ri_hists,&binned_ri_distributions,&binned_freqs,256,cache_size,samples_per_phase).unwrap();
     leases=leases_temp;
