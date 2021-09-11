@@ -1,6 +1,5 @@
-//use std::collections::HashMap;
-//use std::collections::BinaryHeap;
-//use std::u64;
+
+
 
 
 // Functions for parsing input files, debug prints, 
@@ -9,6 +8,9 @@ pub mod io {
     use serde::{Serialize, Deserialize};
     use std::collections::BinaryHeap;
     use std::collections::HashMap;
+    use std::io::Write;
+    
+
 
 
     #[derive(Deserialize)]
@@ -212,7 +214,12 @@ pub mod io {
   
         (super::lease_gen::RIHists::new(ri_hists),samples_per_phase)
     }
-    pub fn dump_leases(leases: HashMap<u64,u64>, dual_leases: HashMap<u64,(f32,u64)>,lease_hits:HashMap<u64,HashMap<u64,u64>>,trace_length:u64) {
+    pub fn dump_leases(leases: HashMap<u64,u64>, 
+        dual_leases: HashMap<u64,(f32,u64)>,
+        lease_hits:HashMap<u64,HashMap<u64,u64>>,
+        trace_length:u64,
+        output_file:&str
+        ) {
         let mut num_hits=0;
        //create lease output vector
               let mut lease_vector: Vec<(u64,u64,u64,u64,f32)> = Vec::new();
@@ -245,12 +252,13 @@ pub mod io {
             
 
          }
-         println!("Dump predicted miss count (no contention misses): {}",trace_length-num_hits*256);
+         println!("Writing output to: {}",output_file);
+         let mut file = std::fs::File::create(output_file).expect("create failed");
+         file.write_all(&format!("Dump predicted miss count (no contention misses): {}\n",trace_length-num_hits*256)[..].as_bytes()).expect("write failed");
+         file.write_all("Dump formated leases\n".as_bytes()).expect("write failed");
 
-
-         println!("Dump formated leases");
         for (phase, address, lease_short, lease_long, percentage) in lease_vector.iter(){
-            println!("{:x}, {:x}, {:x}, {:x}, {}",phase, address, lease_short, lease_long, percentage);
+            file.write_all(&format!("{:x}, {:x}, {:x}, {:x}, {}\n",phase, address, lease_short, lease_long, percentage)[..].as_bytes()).expect("write failed");
         }
     }
 
@@ -341,17 +349,17 @@ pub mod lease_gen {
     }
     
     impl BinFreqs{
-        pub fn new(BinFreqs_input: HashMap<u64,HashMap<u64,u64>>) -> Self{
+        pub fn new(bin_freqs_input: HashMap<u64,HashMap<u64,u64>>) -> Self{
             BinFreqs{
-                bin_freqs:BinFreqs_input,
+                bin_freqs:bin_freqs_input,
             } 
         }
     }
 
     impl BinnedRIs{
-        pub fn new(BinRI_input: HashMap <u64,HashMap<u64,HashMap<u64,u64>>>) -> Self{
+        pub fn new(bin_ri_input: HashMap <u64,HashMap<u64,HashMap<u64,u64>>>) -> Self{
             BinnedRIs{
-                bin_ri_distribution:BinRI_input,
+                bin_ri_distribution:bin_ri_input,
             } 
         }
     }
@@ -599,21 +607,22 @@ pub mod lease_gen {
         return total;
 
      }
-    pub fn PRL(bin_width : u64,
+    pub fn prl(bin_width : u64,
                 ri_hists : &RIHists,
                  binned_ris: &BinnedRIs,
                 binned_freqs: &BinFreqs,
                 sample_rate : u64,
                 cache_size : u64,
-                samples_per_phase : HashMap<u64,u64>,
-
-        )-> Option<(HashMap<u64,u64>,HashMap<u64,(f32,u64)>,HashMap<u64,HashMap<u64,u64>>,u64)>{
+                samples_per_phase : &HashMap<u64,u64>,
+                verbose: bool,)-> Option<(HashMap<u64,u64>,HashMap<u64,(f32,u64)>,HashMap<u64,HashMap<u64,u64>>,u64)>{
         let mut new_lease: PPUC;
         let mut dual_leases : HashMap<u64,(f32,u64)>= HashMap::new(); //{ref_id, (alpha, long_lease)}
         let mut trace_length : u64=0;
         let bin_target:u64=bin_width*cache_size;
         let mut bin_endpoints:Vec<u64>=Vec::new();
+        if verbose{
         println!("bin_width:  {}",bin_width);
+    }
        for key in binned_freqs.bin_freqs.keys(){
             bin_endpoints.push(*key);
        }
@@ -714,8 +723,10 @@ pub mod lease_gen {
                     print_string=format!("{:} {1:.5}",print_string,&(bin_saturation.get(bin).unwrap()/bin_width as f64));
                    
                 }
+                if verbose{
                  println!("assigning lease: {:x} to reference {:x}",new_lease.lease, addr);
                  println!("Average cache occupancy per bin: [{:}]",print_string);
+             }
             }
             else {
                 num_full_bins=0;
@@ -753,8 +764,10 @@ pub mod lease_gen {
                         print_string=format!("{:} {1:.5}",print_string,&(bin_saturation.get(bin).unwrap()/bin_width as f64));
                    
                     }
+                    if verbose{
                     println!("Assigning dual lease {:x} to address {:x} with percentage: {}",new_lease.lease,addr,acceptable_ratio);
                     println!("Average cache occupancy per bin: [{:}]",print_string);
+                }
                 }
                 
             }
@@ -766,7 +779,7 @@ pub mod lease_gen {
                   ri_hists : &RIHists, 
                   cache_size : u64, 
                   sample_rate : u64, 
-                  samples_per_phase : HashMap<u64,u64>,
+                  samples_per_phase : &HashMap<u64,u64>,
                   verbose: bool,
                   debug: bool) -> Option<(HashMap<u64,u64>,HashMap<u64,(f32,u64)>,HashMap<u64,HashMap<u64,u64>>,u64)> {
 
@@ -847,8 +860,9 @@ pub mod lease_gen {
             
              *cost_per_phase.entry(phase).or_insert(0)+=new_cost;
          }
+         if verbose {
          println!("costs per phase{:?}",cost_per_phase);
-
+     }
 
         loop {
             new_lease = match ppuc_tree.pop(){
