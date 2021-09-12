@@ -55,10 +55,12 @@ pub mod io {
         for result in rdr.deserialize(){
             let sample: Sample = result.unwrap();
             
+            //if outside of current bin, moved to the next
             if sample.time>curr_bin+bin_width{
-              
+              //store the RI and frequency data for the old bin
                 bin_freqs.insert(curr_bin,curr_bin_dict.clone());
                 bin_ri_distributions.insert(curr_bin,curr_ri_distribution_dict.clone());
+                //initalize storage for the new bin
                 curr_bin_dict.clear();
                 curr_ri_distribution_dict.clear();
                 curr_bin+=bin_width;
@@ -73,14 +75,21 @@ pub mod io {
             else {
                 curr_bin_dict.insert(addr,1);
             }
+            //if the address isn't a key in the outer level hashmap, add a hashmap corresponding to that key; then add the key value pair (ri,1) to that hashmap
+            //if the address is a key in the outer level hashmap, check to see if the current ri is a key in the corresponding inner hashmap.
+            //if yes, then increment the count for that RI, if not, insert a new key value pair (ri,1).
            *curr_ri_distribution_dict.entry(addr).or_insert(HashMap::new()).entry(ri).or_insert(0) += 1;
+
+           //create an array of all found references
             if !all_keys.iter().any(|&i| i==addr){
                 all_keys.push(addr);
             }
             
         }
+        //store the frequency and RI data for the last bin
         bin_freqs.insert(curr_bin,curr_bin_dict.clone());
         bin_ri_distributions.insert(curr_bin,curr_ri_distribution_dict.clone());
+        //if a reference is not in a bin, add it with a frequency count of 0
         let temp= bin_freqs.clone();
         for (bin,_addrs) in &temp{
             let bin_freqs_temp=bin_freqs.entry(*bin).or_insert(HashMap::new());
@@ -95,7 +104,7 @@ pub mod io {
 
 
 
-    pub fn build_phase_transitions(input_file:&str) -> Vec<(u64,u64)>{
+    pub fn build_phase_transitions(input_file:&str) -> (Vec<(u64,u64)>,usize){
         println!("Reading input from: {}", input_file);
 
 
@@ -103,12 +112,15 @@ pub mod io {
             .has_headers(false)
             .from_path(input_file)
             .unwrap();
-
+        let mut u_tags=HashMap::<u64,bool>::new();
         let mut sample_hash = HashMap::new();
 
         for result in rdr.deserialize() {
             let sample: Sample = result.unwrap();
             let ri = u64::from_str_radix(&sample.ri,16).unwrap();
+            //store unique tags
+             u_tags.insert(u64::from_str_radix(&sample.tag,16).unwrap(),false);
+
             //if sample is negative, there is no reuse, so ignore
             if ri>2147483647 {
                 continue;
@@ -120,6 +132,8 @@ pub mod io {
             time = time - ri;
             sample_hash.insert(time,phase_id);
         }
+        //every data block is associated with at least one miss in the absense of hardware prefetching.
+        let first_misses=u_tags.len();
 
         let mut sorted_samples: Vec<_> = sample_hash.iter().collect();
         sorted_samples.sort_by_key(|a| a.0);
@@ -139,7 +153,8 @@ pub mod io {
         let mut sorted_transitions: Vec<_> = phase_transitions.iter().collect();
         sorted_transitions.sort_by_key(|a| a.0);
 
-        sorted_transitions.iter().map(|&x| (*(x.0),*(x.1))).collect()
+        return(sorted_transitions.iter().map(|&x| (*(x.0),*(x.1))).collect(),first_misses);
+      
     }
 
     //Build ri hists in the following form
@@ -153,8 +168,8 @@ pub mod io {
     
     // Tail cost refers to the accumulation of cost from reuses greater than ri.
     // This cost may span a phase boundary 
-    pub fn build_ri_hists(input_file:&str) -> (super::lease_gen::RIHists,HashMap<u64,u64>){
-        let phase_transitions = build_phase_transitions(input_file);
+    pub fn build_ri_hists(input_file:&str,cshel:bool) -> (super::lease_gen::RIHists,HashMap<u64,u64>,usize){
+        let (phase_transitions,first_misses) = build_phase_transitions(input_file);
         let mut rdr = csv::ReaderBuilder::new()
             .has_headers(false)
             .from_path(input_file)
@@ -162,68 +177,94 @@ pub mod io {
 
         let mut ri_hists = HashMap::new();
         let mut samples_per_phase = HashMap::new();
-        println!("before first pass!");
-        //first pass for head costs
-        for result in rdr.deserialize() {
-            let sample: Sample = result.unwrap();
-            let ri = u64::from_str_radix(&sample.ri,16).unwrap();
-            //if sample is negative, there is no reuse, so ignore
-            if ri>2147483647 {
-                continue;
+     
+        //Don't need to calculate head or tail costs for PRL or CLAM or SHEL, 
+        //but want RI distribution in same format because that's what the 
+        //lease algorithms and associated functions expect.
+
+        if cshel {
+           
+            println!("before first pass!");
+            for result in rdr.deserialize() {
+                let sample: Sample = result.unwrap();
+                let ri = u64::from_str_radix(&sample.ri,16).unwrap();
+                //if sample is negative, there is no reuse, so ignore
+                if ri>2147483647 {
+                    continue;
+                }
+                let time = sample.time;
+                let phase_id_ref = u64::from_str_radix(&sample.phase_id_ref,16).unwrap();
+                let next_phase_tuple = match super::helpers::binary_search(&phase_transitions,time-ri){
+                    Some(v) => v,
+                    None => (time+1,0),
+                };
+
+                super::lease_gen::process_sample_head_cost(&mut ri_hists,phase_id_ref,ri,time,next_phase_tuple);
+
+                let phase_id = (phase_id_ref & 0xFF000000)>>24;
+                *samples_per_phase.entry(phase_id).or_insert(0)+=1;
             }
-            let time = sample.time;
-            let phase_id_ref = u64::from_str_radix(&sample.phase_id_ref,16).unwrap();
-            let next_phase_tuple = match super::helpers::binary_search(&phase_transitions,time-ri){
-                Some(v) => v,
-                None => (time+1,0),
-            };
+            println!("before second pass!");
+            let mut rdr = csv::ReaderBuilder::new()
+                .has_headers(false)
+                .from_path(input_file)
+                .unwrap();
+            //second pass for tail costs
 
-            super::lease_gen::process_sample_head_cost(&mut ri_hists,phase_id_ref,ri,time,next_phase_tuple);
-
-            let phase_id = (phase_id_ref & 0xFF000000)>>24;
-            *samples_per_phase.entry(phase_id).or_insert_with(|| 0)+=1;
-        }
-        println!("before second pass!");
-
-        let mut rdr = csv::ReaderBuilder::new()
-            .has_headers(false)
-            .from_path(input_file)
-            .unwrap();
-        //second pass for tail costs
-       
-        for result in rdr.deserialize() {
-            let sample: Sample = result.unwrap();
-            let ri = u64::from_str_radix(&sample.ri,16).unwrap();
-            //if sample is negative, there is no reuse, so ignore
-            if ri>2147483647 {
-                continue;
+            for result in rdr.deserialize() {
+                let sample: Sample = result.unwrap();
+                let ri = u64::from_str_radix(&sample.ri,16).unwrap();
+                //if sample is negative, there is no reuse, so ignore
+                if ri>2147483647 {
+                    continue;
+                }
+                let time = sample.time;
+                let phase_id_ref = u64::from_str_radix(&sample.phase_id_ref,16).unwrap();
+                let next_phase_tuple = match super::helpers::binary_search(&phase_transitions,time-ri){
+                    Some(v) => v,
+                    None => (time+1,0),
+                };
+                super::lease_gen::process_sample_tail_cost(&mut ri_hists,
+                                         phase_id_ref,
+                                         ri,
+                                         time,
+                                         next_phase_tuple);
             }
-            let time = sample.time;
-            let phase_id_ref = u64::from_str_radix(&sample.phase_id_ref,16).unwrap();
-            let next_phase_tuple = match super::helpers::binary_search(&phase_transitions,time-ri){
-                Some(v) => v,
-                None => (time+1,0),
-            };
-            super::lease_gen::process_sample_tail_cost(&mut ri_hists,
-                                     phase_id_ref,
-                                     ri,
-                                     time,
-                                     next_phase_tuple);
         }
-    
-  
-        (super::lease_gen::RIHists::new(ri_hists),samples_per_phase)
+        //if not doing C-SHEL generates RI distribution with head and tail costs set to 0 (significantly faster)
+        else{
+            for result in rdr.deserialize() {
+                let sample: Sample = result.unwrap();
+                let ri = u64::from_str_radix(&sample.ri,16).unwrap();
+                //if sample is negative, there is no reuse, so ignore
+                if ri>2147483647 {
+                    continue;
+                }
+                let phase_id_ref = u64::from_str_radix(&sample.phase_id_ref,16).unwrap();
+                let phase_id = (phase_id_ref & 0xFF000000)>>24;
+                *samples_per_phase.entry(phase_id).or_insert(0)+=1;
+                //if the reference isn't in the distrubtion add it
+                //if an ri for that reference isn't in the distrubtion add it as key with a value of (ri_count,{phaseID,(0,0)))
+                //if an ri for that reference is in the distribuntion increment the ri count by 1
+               ri_hists.entry(phase_id_ref).or_insert(HashMap::new()).entry(ri).and_modify(|e| {e.0+=1}).or_insert((1,HashMap::new())).1.entry(phase_id).or_insert((0,0));
+            }
+
+
+        }
+        (super::lease_gen::RIHists::new(ri_hists),samples_per_phase,first_misses)
     }
     pub fn dump_leases(leases: HashMap<u64,u64>, 
         dual_leases: HashMap<u64,(f32,u64)>,
         lease_hits:HashMap<u64,HashMap<u64,u64>>,
         trace_length:u64,
-        output_file:&str
+        output_file:&str,
+        first_misses:usize
         ) {
         let mut num_hits=0;
        //create lease output vector
               let mut lease_vector: Vec<(u64,u64,u64,u64,f32)> = Vec::new();
         for (&phase_address,&lease) in leases.iter(){
+            let lease = if lease >0 {lease} else {1}; 
             let phase   = (phase_address & 0xFF000000)>>24;
             let address =  phase_address & 0x00FFFFFF;
             if dual_leases.contains_key(&phase_address){
@@ -240,7 +281,6 @@ pub mod io {
             //we are assuming that our sampling captures all RIS by assuming the distribution is normal
             //thus if an RI for a reference didn't occur during runtime (i.e., the base lease of 1 that all references get) 
             //we can assume the number of hits it gets is zero, and moreover, even if that reuse interval does happen, we have no way
-            //of knowing how many hits so we just ignore it. 
             
            if lease_hits.get(address).unwrap().get(lease_short)!=None{
                 num_hits+=(*lease_hits.get(address).unwrap().get(lease_short).unwrap() as f32 *(percentage)).round() as u64;
@@ -253,7 +293,7 @@ pub mod io {
          }
          println!("Writing output to: {}",output_file);
          let mut file = std::fs::File::create(output_file).expect("create failed");
-         file.write_all(&format!("Dump predicted miss count (no contention misses): {}\n",trace_length-num_hits*256)[..].as_bytes()).expect("write failed");
+         file.write_all(&format!("Dump predicted miss count (no contention misses): {}\n",trace_length-num_hits*256+first_misses as u64)[..].as_bytes()).expect("write failed");
          file.write_all("Dump formated leases\n".as_bytes()).expect("write failed");
 
         for (phase, address, lease_short, lease_long, percentage) in lease_vector.iter(){
@@ -606,7 +646,7 @@ pub mod lease_gen {
         return total;
 
      }
-    pub fn prl(bin_width : u64,
+ pub fn prl(bin_width : u64,
                 ri_hists : &RIHists,
                  binned_ris: &BinnedRIs,
                 binned_freqs: &BinFreqs,
@@ -692,6 +732,10 @@ pub mod lease_gen {
             if new_lease.old_lease != *leases.get(&new_lease.ref_id).unwrap(){
                 continue;
             }
+            //won't assign a reference to a reference that has recieved a dual lease
+            if dual_leases.contains_key(&new_lease.ref_id){
+                continue;
+            }
             neg_impact=false;
             num_unsuitable=0;
             let addr= new_lease.ref_id;
@@ -718,6 +762,12 @@ pub mod lease_gen {
                     num_unsuitable+=1;
                 }
             }
+            for (bin,sat) in &bin_saturation.clone(){
+                if verbose {
+                    println!("bin: {} current capacity: {:.7} impact: {:.7}", bin/bin_width, sat/bin_width as f64,impact_dict.get(bin).unwrap()/bin_width as f64);
+                }
+             }
+             println!("addr:{} ri:{}",addr,new_lease.lease);
             //skip lease, if it makes it worse
            
             if neg_impact{
@@ -739,12 +789,12 @@ pub mod lease_gen {
                      if  binned_ris.bin_ri_distribution.get(bin).unwrap().contains_key(&addr){
                         bin_saturation.insert(*bin,bin_saturation.get(bin).unwrap()+impact_dict.get(bin).unwrap());
                     }
-                    print_string=format!("{:} {1:.5}",print_string,&(bin_saturation.get(bin).unwrap()/bin_width as f64));
+                    print_string=format!("{:} {1:.7}",print_string,&(bin_saturation.get(bin).unwrap()/bin_width as f64));
                    
                 }
                 if verbose{
-                 println!("assigning lease: {:x} to reference {:x}",new_lease.lease, addr);
-                 println!("Average cache occupancy per bin: [{:}]",print_string);
+                 println!("assigning lease: {} to reference {}",new_lease.lease, addr);
+                 println!("Average cache occupancy per bin: [{}]",print_string);
              }
             }
             else {
@@ -780,12 +830,12 @@ pub mod lease_gen {
                         if  binned_ris.bin_ri_distribution.get(bin).unwrap().contains_key(&addr){
                         bin_saturation.insert(*bin,bin_saturation.get(bin).unwrap()+impact_dict.get(bin).unwrap()*acceptable_ratio);
                         }
-                        print_string=format!("{:} {1:.5}",print_string,&(bin_saturation.get(bin).unwrap()/bin_width as f64));
+                        print_string=format!("{:} {1:.7}",print_string,&(bin_saturation.get(bin).unwrap()/bin_width as f64));
                    
                     }
                     if verbose{
-                    println!("Assigning dual lease {:x} to address {:x} with percentage: {}",new_lease.lease,addr,acceptable_ratio);
-                    println!("Average cache occupancy per bin: [{:}]",print_string);
+                    println!("Assigning dual lease {} to address {} with percentage: {}",new_lease.lease,addr,acceptable_ratio);
+                    println!("Average cache occupancy per bin: [{}]",print_string);
                 }
                 }
                 
