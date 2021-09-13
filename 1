@@ -1,0 +1,399 @@
+   Compiling cshel v0.1.0 (/Users/ben/UR/Summer21/cshel)
+error[E0425]: cannot find function `binary_search` in this scope
+   --> src/lib.rs:706:20
+    |
+706 |         assert_eq!(binary_search(&a,2),Some((5,1)));
+    |                    ^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+695 |     use crate::helpers::binary_search;
+    |
+
+error[E0425]: cannot find function `binary_search` in this scope
+   --> src/lib.rs:707:20
+    |
+707 |         assert_eq!(binary_search(&a,120),Some((288,0)));
+    |                    ^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+695 |     use crate::helpers::binary_search;
+    |
+
+error[E0425]: cannot find function `binary_search` in this scope
+   --> src/lib.rs:708:20
+    |
+708 |         assert_eq!(binary_search(&a,1024),Some((1025,1)));
+    |                    ^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+695 |     use crate::helpers::binary_search;
+    |
+
+error[E0425]: cannot find function `binary_search` in this scope
+   --> src/lib.rs:709:20
+    |
+709 |         assert_eq!(binary_search(&a,2048),None);
+    |                    ^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+695 |     use crate::helpers::binary_search;
+    |
+
+error[E0425]: cannot find function `binary_search` in this scope
+   --> src/lib.rs:710:20
+    |
+710 |         assert_eq!(binary_search(&a,1025),None);
+    |                    ^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+695 |     use crate::helpers::binary_search;
+    |
+
+error[E0433]: failed to resolve: use of undeclared type `HashMap`
+   --> src/lib.rs:715:28
+    |
+715 |         let mut ri_hists = HashMap::new();
+    |                            ^^^^^^^ not found in this scope
+    |
+help: consider importing one of these items
+    |
+695 |     use crate::lease_gen::HashMap;
+    |
+695 |     use std::collections::HashMap;
+    |
+
+error[E0425]: cannot find function `process_sample_head_cost` in this scope
+   --> src/lib.rs:716:9
+    |
+716 |         process_sample_head_cost(&mut ri_hists,1,12,20,(100000,1));
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+695 |     use crate::lease_gen::process_sample_head_cost;
+    |
+
+error[E0433]: failed to resolve: use of undeclared type `RIHists`
+   --> src/lib.rs:717:27
+    |
+717 |         let hist_struct = RIHists::new(ri_hists);
+    |                           ^^^^^^^ not found in this scope
+    |
+help: consider importing this struct
+    |
+695 |     use crate::lease_gen::RIHists;
+    |
+
+error[E0433]: failed to resolve: use of undeclared type `HashMap`
+   --> src/lib.rs:727:28
+    |
+727 |         let mut ri_hists = HashMap::new();
+    |                            ^^^^^^^ not found in this scope
+    |
+help: consider importing one of these items
+    |
+695 |     use crate::lease_gen::HashMap;
+    |
+695 |     use std::collections::HashMap;
+    |
+
+error[E0425]: cannot find function `process_sample_head_cost` in this scope
+   --> src/lib.rs:728:9
+    |
+714 |     fn test_process_sample_head_cost(){
+    |     ---------------------------------- similarly named constant `test_process_sample_head_cost` defined here
+...
+728 |         process_sample_head_cost(&mut ri_hists,1,12,20,(10,1)); //reference 1, phase 0
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+help: a constant with a similar name exists
+    |
+728 |         test_process_sample_head_cost(&mut ri_hists,1,12,20,(10,1)); //reference 1, phase 0
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: consider importing this function
+    |
+695 |     use crate::lease_gen::process_sample_head_cost;
+    |
+
+error[E0433]: failed to resolve: use of undeclared type `RIHists`
+   --> src/lib.rs:729:27
+    |
+729 |         let hist_struct = RIHists::new(ri_hists);
+    |                           ^^^^^^^ not found in this scope
+    |
+help: consider importing this struct
+    |
+695 |     use crate::lease_gen::RIHists;
+    |
+
+error[E0433]: failed to resolve: use of undeclared type `HashMap`
+   --> src/lib.rs:738:27
+    |
+738 |         let mut ri_hist = HashMap::new();
+    |                           ^^^^^^^ not found in this scope
+    |
+help: consider importing one of these items
+    |
+695 |     use crate::lease_gen::HashMap;
+    |
+695 |     use std::collections::HashMap;
+    |
+
+error[E0433]: failed to resolve: use of undeclared type `HashMap`
+   --> src/lib.rs:740:29
+    |
+740 |         ri_hist.insert(3,(1,HashMap::new()));
+    |                             ^^^^^^^ not found in this scope
+    |
+help: consider importing one of these items
+    |
+695 |     use crate::lease_gen::HashMap;
+    |
+695 |     use std::collections::HashMap;
+    |
+
+error[E0433]: failed to resolve: use of undeclared type `HashMap`
+   --> src/lib.rs:741:29
+    |
+741 |         ri_hist.insert(5,(7,HashMap::new()));
+    |                             ^^^^^^^ not found in this scope
+    |
+help: consider importing one of these items
+    |
+695 |     use crate::lease_gen::HashMap;
+    |
+695 |     use std::collections::HashMap;
+    |
+
+error[E0433]: failed to resolve: use of undeclared type `HashMap`
+   --> src/lib.rs:742:30
+    |
+742 |         ri_hist.insert(17,(4,HashMap::new()));
+    |                              ^^^^^^^ not found in this scope
+    |
+help: consider importing one of these items
+    |
+695 |     use crate::lease_gen::HashMap;
+    |
+695 |     use std::collections::HashMap;
+    |
+
+error[E0433]: failed to resolve: use of undeclared type `HashMap`
+   --> src/lib.rs:743:30
+    |
+743 |         ri_hist.insert(19,(3,HashMap::new()));
+    |                              ^^^^^^^ not found in this scope
+    |
+help: consider importing one of these items
+    |
+695 |     use crate::lease_gen::HashMap;
+    |
+695 |     use std::collections::HashMap;
+    |
+
+error[E0425]: cannot find function `get_ppuc` in this scope
+   --> src/lib.rs:744:21
+    |
+744 |         let ppucs = get_ppuc(1,0,&ri_hist);
+    |                     ^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+695 |     use crate::lease_gen::get_ppuc;
+    |
+
+error[E0433]: failed to resolve: use of undeclared type `HashMap`
+   --> src/lib.rs:751:28
+    |
+751 |         let mut ri_hists = HashMap::new();
+    |                            ^^^^^^^ not found in this scope
+    |
+help: consider importing one of these items
+    |
+695 |     use crate::lease_gen::HashMap;
+    |
+695 |     use std::collections::HashMap;
+    |
+
+error[E0425]: cannot find function `process_sample_head_cost` in this scope
+   --> src/lib.rs:755:9
+    |
+714 |     fn test_process_sample_head_cost(){
+    |     ---------------------------------- similarly named constant `test_process_sample_head_cost` defined here
+...
+755 |         process_sample_head_cost(&mut ri_hists,1,ri_short,10,(10000,1));
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+help: a constant with a similar name exists
+    |
+755 |         test_process_sample_head_cost(&mut ri_hists,1,ri_short,10,(10000,1));
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: consider importing this function
+    |
+695 |     use crate::lease_gen::process_sample_head_cost;
+    |
+
+error[E0425]: cannot find function `process_sample_head_cost` in this scope
+   --> src/lib.rs:756:9
+    |
+714 |     fn test_process_sample_head_cost(){
+    |     ---------------------------------- similarly named constant `test_process_sample_head_cost` defined here
+...
+756 |         process_sample_head_cost(&mut ri_hists,1,ri_short,20,(10000,1));
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+help: a constant with a similar name exists
+    |
+756 |         test_process_sample_head_cost(&mut ri_hists,1,ri_short,20,(10000,1));
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: consider importing this function
+    |
+695 |     use crate::lease_gen::process_sample_head_cost;
+    |
+
+error[E0425]: cannot find function `process_sample_head_cost` in this scope
+   --> src/lib.rs:757:9
+    |
+714 |     fn test_process_sample_head_cost(){
+    |     ---------------------------------- similarly named constant `test_process_sample_head_cost` defined here
+...
+757 |         process_sample_head_cost(&mut ri_hists,1,ri_long,200,(10000,1));
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+help: a constant with a similar name exists
+    |
+757 |         test_process_sample_head_cost(&mut ri_hists,1,ri_long,200,(10000,1));
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: consider importing this function
+    |
+695 |     use crate::lease_gen::process_sample_head_cost;
+    |
+
+error[E0425]: cannot find function `process_sample_head_cost` in this scope
+   --> src/lib.rs:758:9
+    |
+714 |     fn test_process_sample_head_cost(){
+    |     ---------------------------------- similarly named constant `test_process_sample_head_cost` defined here
+...
+758 |         process_sample_head_cost(&mut ri_hists,1,ri_very_long,2200,(10000,1));
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+help: a constant with a similar name exists
+    |
+758 |         test_process_sample_head_cost(&mut ri_hists,1,ri_very_long,2200,(10000,1));
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: consider importing this function
+    |
+695 |     use crate::lease_gen::process_sample_head_cost;
+    |
+
+error[E0425]: cannot find function `process_sample_tail_cost` in this scope
+   --> src/lib.rs:760:9
+    |
+760 |         process_sample_tail_cost(&mut ri_hists,1,ri_short,10,(10000,1));
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+695 |     use crate::lease_gen::process_sample_tail_cost;
+    |
+
+error[E0425]: cannot find function `process_sample_tail_cost` in this scope
+   --> src/lib.rs:761:9
+    |
+761 |         process_sample_tail_cost(&mut ri_hists,1,ri_short,20,(10000,1));
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+695 |     use crate::lease_gen::process_sample_tail_cost;
+    |
+
+error[E0425]: cannot find function `process_sample_tail_cost` in this scope
+   --> src/lib.rs:762:9
+    |
+762 |         process_sample_tail_cost(&mut ri_hists,1,ri_long,200,(10000,1));
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+695 |     use crate::lease_gen::process_sample_tail_cost;
+    |
+
+error[E0425]: cannot find function `process_sample_tail_cost` in this scope
+   --> src/lib.rs:763:9
+    |
+763 |         process_sample_tail_cost(&mut ri_hists,1,ri_very_long,2200,(10000,1));
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+695 |     use crate::lease_gen::process_sample_tail_cost;
+    |
+
+error[E0433]: failed to resolve: use of undeclared type `RIHists`
+   --> src/lib.rs:765:27
+    |
+765 |         let hist_struct = RIHists::new(ri_hists);
+    |                           ^^^^^^^ not found in this scope
+    |
+help: consider importing this struct
+    |
+695 |     use crate::lease_gen::RIHists;
+    |
+
+error[E0433]: failed to resolve: use of undeclared type `HashMap`
+   --> src/lib.rs:776:28
+    |
+776 |         let mut ri_hists = HashMap::new();
+    |                            ^^^^^^^ not found in this scope
+    |
+help: consider importing one of these items
+    |
+695 |     use crate::lease_gen::HashMap;
+    |
+695 |     use std::collections::HashMap;
+    |
+
+error[E0433]: failed to resolve: use of undeclared type `RIHists`
+   --> src/lib.rs:783:27
+    |
+783 |         let hist_struct = RIHists::new(ri_hists);
+    |                           ^^^^^^^ not found in this scope
+    |
+help: consider importing this struct
+    |
+695 |     use crate::lease_gen::RIHists;
+    |
+
+error[E0425]: cannot find function `print_ri_hists` in this scope
+   --> src/lib.rs:785:9
+    |
+785 |         print_ri_hists(&hist_struct);
+    |         ^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this function
+    |
+695 |     use crate::io::debug::print_ri_hists;
+    |
+
+warning: unused import: `super::*`
+   --> src/lib.rs:695:9
+    |
+695 |     use super::*;
+    |         ^^^^^^^^
+    |
+    = note: `#[warn(unused_imports)]` on by default
+
+error: aborting due to 30 previous errors; 1 warning emitted
+
+Some errors have detailed explanations: E0425, E0433.
+For more information about an error, try `rustc --explain E0425`.
+error: could not compile `cshel`
+
+To learn more, run the command again with --verbose.

@@ -38,16 +38,20 @@ pub mod io {
         for result in rdr.deserialize() {
             let sample: Sample = result.unwrap();
             let ri = u64::from_str_radix(&sample.ri,16).unwrap();
-            //if sample is negative, there is no reuse, so ignore
-            if ri>2147483647 {
-                continue;
-            }
-            let mut time = sample.time;
             let phase_id_ref = u64::from_str_radix(&sample.phase_id_ref,16).unwrap();
 
             let phase_id = (phase_id_ref & 0xFF000000)>>24;
-            time = time - ri;
-            sample_hash.insert(time,phase_id);
+
+            //if sample is negative, there is no reuse, so ignore
+            let reuse_time = sample.time;
+            let use_time;
+            if ri>2147483647 {
+                use_time = (reuse_time as i32 + ri as i32) as u64;
+            }
+            else{
+                use_time = reuse_time - ri;
+            }
+            sample_hash.insert(use_time,phase_id);
         }
 
         let mut sorted_samples: Vec<_> = sample_hash.iter().collect();
@@ -96,18 +100,31 @@ pub mod io {
         for result in rdr.deserialize() {
             let sample: Sample = result.unwrap();
             let ri = u64::from_str_radix(&sample.ri,16).unwrap();
-            //if sample is negative, there is no reuse, so ignore
-            if ri>2147483647 {
-                continue;
+
+            let reuse_time = sample.time;
+            let use_time;
+
+            let mut ri_signed = ri as i32;
+
+            if ri_signed < 0 {
+                use_time = (reuse_time as i32 + ri_signed) as u64;
+                ri_signed = i32::MAX; //canonical value for negatives
             }
-            let time = sample.time;
+            else {
+                use_time = reuse_time - ri;
+            }
+
             let phase_id_ref = u64::from_str_radix(&sample.phase_id_ref,16).unwrap();
-            let next_phase_tuple = match super::helpers::binary_search(&phase_transitions,time-ri){
+            let next_phase_tuple = match super::helpers::binary_search(&phase_transitions,use_time){
                 Some(v) => v,
-                None => (time+1,0),
+                None => (reuse_time+1,0),
             };
 
-            super::lease_gen::process_sample_head_cost(&mut ri_hists,phase_id_ref,ri,time,next_phase_tuple);
+            super::lease_gen::process_sample_head_cost(&mut ri_hists,
+                                                       phase_id_ref,
+                                                       ri_signed as u64,
+                                                       use_time,
+                                                       next_phase_tuple);
 
             let phase_id = (phase_id_ref & 0xFF000000)>>24;
             *samples_per_phase.entry(phase_id).or_insert_with(|| 0)+=1;
@@ -117,29 +134,41 @@ pub mod io {
             .has_headers(false)
             .from_path(input_file)
             .unwrap();
+
         //second pass for tail costs
         for result in rdr.deserialize() {
             let sample: Sample = result.unwrap();
             let ri = u64::from_str_radix(&sample.ri,16).unwrap();
-            //if sample is negative, there is no reuse, so ignore
-            if ri>2147483647 {
-                continue;
+
+            let reuse_time = sample.time;
+            let use_time;
+
+            let mut ri_signed = ri as i32;
+
+            if ri_signed < 0 {
+                use_time = (reuse_time as i32 + ri_signed) as u64;
+                ri_signed = i32::MAX; //canonical value for negatives
             }
-            let time = sample.time;
+            else {
+                use_time = reuse_time - ri;
+            }
+
             let phase_id_ref = u64::from_str_radix(&sample.phase_id_ref,16).unwrap();
-            let next_phase_tuple = match super::helpers::binary_search(&phase_transitions,time-ri){
+            let next_phase_tuple = match super::helpers::binary_search(&phase_transitions,reuse_time-ri){
                 Some(v) => v,
-                None => (time+1,0),
+                None => (reuse_time+1,0),
             };
+
             super::lease_gen::process_sample_tail_cost(&mut ri_hists,
                                      phase_id_ref,
-                                     ri,
-                                     time,
+                                     ri_signed as u64,
+                                     use_time,
                                      next_phase_tuple);
         }
 
         (super::lease_gen::RIHists::new(ri_hists),samples_per_phase)
     }
+
     pub fn dump_leases(leases: HashMap<u64,u64>, dual_leases: HashMap<u64,(f32,u64)>) {
         println!("Dump formated leases");
               let mut lease_vector: Vec<(u64,u64,u64,u64,f32)> = Vec::new();
@@ -292,11 +321,10 @@ pub mod lease_gen {
     pub fn process_sample_head_cost(ri_hists: &mut HashMap<u64,HashMap<u64,(u64,HashMap<u64,(u64,u64)>)>>,
                       phase_id_ref: u64,
                       ri: u64,
-                      time: u64,
+                      use_time: u64,
                       next_phase_tuple: (u64,u64)){
 
         let phase_id = (phase_id_ref & 0xFF000000)>>24;
-        let start_time = time - ri;
 
         //increment count
         let ref_hist = ri_hists.entry(phase_id_ref).or_insert_with(|| HashMap::new());
@@ -304,8 +332,8 @@ pub mod lease_gen {
         ri_tuple.0  += 1;
 
         //increment head costs
-        let this_phase_head_cost= std::cmp::min(next_phase_tuple.0 - start_time,ri);
-        let next_phase_head_cost= std::cmp::max(time as i64 - next_phase_tuple.0 as i64,
+        let this_phase_head_cost= std::cmp::min(next_phase_tuple.0 - use_time,ri);
+        let next_phase_head_cost= std::cmp::max(use_time as i64 + ri as i64 - next_phase_tuple.0 as i64,
                                                 0) as u64;
         ri_tuple.1.entry(phase_id)
             .or_insert_with(|| (0,0)).0 += this_phase_head_cost;
@@ -319,11 +347,10 @@ pub mod lease_gen {
     pub fn process_sample_tail_cost(ri_hists: &mut HashMap<u64,HashMap<u64,(u64,HashMap<u64,(u64,u64)>)>>,
                       phase_id_ref: u64,
                       ri: u64,
-                      time: u64,
+                      use_time: u64,
                       next_phase_tuple: (u64,u64)){
 
         let phase_id = (phase_id_ref & 0xFF000000)>>24;
-        let start_time = time - ri;
 
         let ref_hist = ri_hists.entry(phase_id_ref)
             .or_insert_with(|| HashMap::new());
@@ -345,10 +372,10 @@ pub mod lease_gen {
             let count_phase_cost_tuple = ref_hist.entry(ri_other)
                 .or_insert_with(|| (0,HashMap::new()));
 
-            let this_phase_tail_cost = std::cmp::min(next_phase_tuple.0 - start_time,
+            let this_phase_tail_cost = std::cmp::min(next_phase_tuple.0 - use_time,
                                                      ri_other);
             let next_phase_tail_cost = std::cmp::max(0,
-                                                     start_time as i64 + 
+                                                     use_time as i64 + 
                                                        ri_other as i64 - 
                                                        next_phase_tuple.0 as i64) as u64;
 
@@ -425,7 +452,7 @@ pub mod lease_gen {
         (new_cost - old_cost ) * sample_rate
     }
 
-    fn get_ppuc(ref_id: u64, 
+    pub fn get_ppuc(ref_id: u64, 
                 base_lease: u64, 
                 ref_ri_hist: &HashMap<u64,(u64,HashMap<u64,(u64,u64)>)>) -> Vec<PPUC>{
 
@@ -646,14 +673,18 @@ pub mod lease_gen {
                 }
             }
             if verbose & debug { 
+                
                 for phase in &phase_ids{
+                    println!("Debug: phase: {}. Allocation: {}",phase,
+                        cost_per_phase.get(&phase).unwrap() / trace_length);
+                }
+                /*
                     println!("Debug: phase: {}",phase);
                     println!("Debug:    cost_per_phase:   {:?}",
                              cost_per_phase.get(&phase).unwrap());
                     println!("Debug:    budget_per_phase: {:?}",
                              budget_per_phase.get(&phase).unwrap());
-                }
-                println!("=================OUTER LOOP ITER===============");
+                }*/
             }
         }
     }
@@ -661,8 +692,11 @@ pub mod lease_gen {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
+    use std::collections::HashMap;
+    use super::io::*;
+    use super::io::debug::*;
+    use super::helpers::*;
+    use super::lease_gen::*;
 
     #[test]
     fn it_works() {
@@ -694,7 +728,7 @@ mod tests {
     fn test_cross_phase_head_cost(){
 
         let mut ri_hists = HashMap::new();
-        process_sample_head_cost(&mut ri_hists,1,12,20,(10,1)); //reference 1, phase 0
+        process_sample_head_cost(&mut ri_hists,1,12,8,(10,1)); //reference 1, phase 0
         let hist_struct = RIHists::new(ri_hists);
 
         assert_eq!(hist_struct.get_ref_ri_count(1,12),1);
@@ -740,19 +774,41 @@ mod tests {
 
     }
 
+    //pub fn process_sample_head_cost(ri_hists: &mut HashMap<u64,HashMap<u64,(u64,HashMap<u64,(u64,u64)>)>>,
+     //p                 phase_id_ref: u64,
+        //p              ri: u64,
+           //p           use_time: u64,
+              //p        next_phase_tuple: (u64,u64)){
     #[test]
     fn tail_cost_cross_phase(){
         let mut ri_hists = HashMap::new();
-        process_sample_head_cost(&mut ri_hists,1,100,170,(100,1));
-        process_sample_head_cost(&mut ri_hists,1,50,120,(100,1));
+        process_sample_head_cost(&mut ri_hists,1,100,70,(100,1));
+        process_sample_head_cost(&mut ri_hists,1,50,70,(100,1));
 
-        process_sample_tail_cost(&mut ri_hists,1,100,170,(100,1));
-        process_sample_tail_cost(&mut ri_hists,1,50,120,(100,1));
+        process_sample_tail_cost(&mut ri_hists,1,100,70,(100,1));
+        process_sample_tail_cost(&mut ri_hists,1,50,70,(100,1));
 
         let hist_struct = RIHists::new(ri_hists);
 
         print_ri_hists(&hist_struct);
         assert_eq!(hist_struct.get_ref_ri_phase_cost(1,50,0).1,30);
         assert_eq!(hist_struct.get_ref_ri_phase_cost(1,50,1).1,20);
+    }
+
+    #[test]
+    fn negative_ri(){
+        let mut ri_hists = HashMap::new();
+        process_sample_head_cost(&mut ri_hists,1, 50, 80, (100,1));
+        process_sample_head_cost(&mut ri_hists,1,i32::max as u64, 90, (100,1));
+
+        process_sample_tail_cost(&mut ri_hists,1, 50, 80, (100,1));
+        process_sample_tail_cost(&mut ri_hists,1,i32::max as u64, 90, (100,1));
+        let hist_struct = RIHists::new(ri_hists);
+
+        assert_eq!(hist_struct.get_ref_ri_phase_cost(1,50,0).0,20);
+        assert_eq!(hist_struct.get_ref_ri_phase_cost(1,50,1).0,30);
+        assert_eq!(hist_struct.get_ref_ri_phase_cost(1,50,0).1,10);
+        assert_eq!(hist_struct.get_ref_ri_phase_cost(1,50,1).1,40);
+
     }
 }

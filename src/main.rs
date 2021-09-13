@@ -30,7 +30,7 @@ fn main(){
 
     let verbose = true;
     let debug   = true;
-    let cshel   = false;
+    let cshel   = true;
 
     let (ri_hists,samples_per_phase) = cshel::io::build_ri_hists(matches.value_of("INPUT").unwrap());
     let (leases, dual_leases, predicted_misses) = cshel::lease_gen::shel_cshel(cshel,&ri_hists,cache_size,sample_rate,samples_per_phase,verbose,debug).unwrap();
