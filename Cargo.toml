@@ -10,3 +10,4 @@ edition = "2018"
 clap = "3.0.0-beta.2"
 csv = "1.1.6"
 serde = { version="1.0.126", features = ["derive"]}
+regex = "1"
