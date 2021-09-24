@@ -249,7 +249,7 @@ pub mod io {
                 }
 
                 let phase_id_ref = u64::from_str_radix(&sample.phase_id_ref,16).unwrap();
-                let next_phase_tuple = match super::helpers::binary_search(&phase_transitions,reuse_time-ri){
+                let next_phase_tuple = match super::helpers::binary_search(&phase_transitions,use_time){
                     Some(v) => v,
                     None => (reuse_time+1,0),
                 };
