@@ -41,6 +41,20 @@ fn main(){
             .default_value("256")
             .about("benchmark sampling rate")
             .required(false))
+        .arg(Arg::new("LLT_SIZE")
+            .short('L')
+            .default_value("128")
+            .about("Number of elements in the lease lookup table")
+            .required(false))
+        .arg(Arg::new("MEM_SIZE")
+            .short('M')
+            .default_value("65536")
+            .about("total memory allocated for lease information"))
+        .arg(Arg::new("DISCRETIZE_WIDTH")
+        .short('D')
+        .default_value("9")
+        .about("bit width avaiable for discretized short lease probability")
+            .required(false))
         .arg(Arg::new("DEBUG")
             .short('d')
             .takes_value(false)
@@ -50,6 +64,9 @@ fn main(){
     let cache_size=matches.value_of("CACHE_SIZE").unwrap().parse::<u64>().unwrap();
     let sample_rate = matches.value_of("SAMPLING_RATE").unwrap().parse::<u64>().unwrap();
     let perl_bin_num =matches.value_of("PRL").unwrap().parse::<u64>().unwrap();
+    let llt_size=matches.value_of("LLT_SIZE").unwrap().parse::<usize>().unwrap();
+    let mem_size=matches.value_of("MEM_SIZE").unwrap().parse::<usize>().unwrap();
+    let discretize_width=matches.value_of("DISCRETIZE_WIDTH").unwrap().parse::<u64>().unwrap();
     let verbose = matches.is_present("VERBOSE");
     let debug   = matches.is_present("DEBUG");
     let cshel   = matches.is_present("CSHEL");
@@ -76,23 +93,29 @@ fn main(){
     let (leases, dual_leases, lease_hits,trace_length) = cshel::lease_gen::prl(bin_width,
         &ri_hists,&binned_ri_distributions,&binned_freqs,256,cache_size,&samples_per_phase,verbose).unwrap();
     
-    cshel::io::dump_leases(leases,dual_leases,lease_hits,trace_length,&output_file_name[..],misses_from_first_access);
+    let lease_vectors=cshel::io::dump_leases(leases,dual_leases,lease_hits,trace_length,&output_file_name[..],misses_from_first_access);
+    let output_lease_file_name=format!("{}/{}_{}_{}",matches.value_of("OUTPUT").unwrap(),&cap[2],"prl","lease.c");
+    cshel::io::gen_lease_c_file(lease_vectors,llt_size,mem_size,output_lease_file_name,discretize_width);
    }
  
    
     output_file_name=format!("{}/{}_{}_{}",matches.value_of("OUTPUT").unwrap(),&cap[2],&cap[1],"leases");
        //generates based on input file phases, CLAM or SHEL 
    let (leases,dual_leases, lease_hits,trace_length) = cshel::lease_gen::shel_cshel(false,&ri_hists,cache_size,sample_rate,&samples_per_phase,verbose,debug).unwrap();
-  cshel::io::dump_leases(leases,dual_leases,lease_hits,trace_length,&output_file_name[..],misses_from_first_access);
-
+  let lease_vectors=cshel::io::dump_leases(leases,dual_leases,lease_hits,trace_length,&output_file_name[..],misses_from_first_access);
+   let output_lease_file_name=format!("{}/{}_{}_{}",matches.value_of("OUTPUT").unwrap(),&cap[2],&cap[1],"lease.c");
+   //generate lease file
+ cshel::io::gen_lease_c_file(lease_vectors,llt_size,mem_size,output_lease_file_name,discretize_width);
   //generate CSHEL if option specified
    if cshel {
     //generate leases
      let (leases, dual_leases, lease_hits,trace_length) = cshel::lease_gen::shel_cshel(true,&ri_hists,cache_size,sample_rate,&samples_per_phase,verbose,debug).unwrap();
        //compose output file name
-     output_file_name=format!("{}/{}_{}_{}",matches.value_of("OUTPUT").unwrap(),&cap[2],"c-shel","leases");
+    output_file_name=format!("{}/{}_{}_{}",matches.value_of("OUTPUT").unwrap(),&cap[2],"c-shel","leases");
       //output to file
-    cshel::io::dump_leases(leases,dual_leases,lease_hits,trace_length,&output_file_name[..],misses_from_first_access);
+      let output_lease_file_name=format!("{}/{}_{}_{}",matches.value_of("OUTPUT").unwrap(),&cap[2],"c-shel","lease.c");
+    let lease_vectors=cshel::io::dump_leases(leases,dual_leases,lease_hits,trace_length,&output_file_name[..],misses_from_first_access);
+     cshel::io::gen_lease_c_file(lease_vectors,llt_size,mem_size,output_lease_file_name,discretize_width);
     }
 
 }
