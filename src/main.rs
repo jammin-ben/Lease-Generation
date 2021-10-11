@@ -91,7 +91,7 @@ fn main(){
     output_file_name=format!("{}/{}_{}_{}",matches.value_of("OUTPUT").unwrap(),&cap[2],"prl","leases");
     //generate prl leases
     let (leases, dual_leases, lease_hits,trace_length) = cshel::lease_gen::prl(bin_width,
-        &ri_hists,&binned_ri_distributions,&binned_freqs,256,cache_size,&samples_per_phase,verbose).unwrap();
+        &ri_hists,&binned_ri_distributions,&binned_freqs,256,cache_size,discretize_width,&samples_per_phase,verbose).unwrap();
     
     let lease_vectors=cshel::io::dump_leases(leases,dual_leases,lease_hits,trace_length,&output_file_name[..],misses_from_first_access);
     let output_lease_file_name=format!("{}/{}_{}_{}",matches.value_of("OUTPUT").unwrap(),&cap[2],"prl","lease.c");
@@ -101,7 +101,8 @@ fn main(){
    
     output_file_name=format!("{}/{}_{}_{}",matches.value_of("OUTPUT").unwrap(),&cap[2],&cap[1],"leases");
        //generates based on input file phases, CLAM or SHEL 
-   let (leases,dual_leases, lease_hits,trace_length) = cshel::lease_gen::shel_cshel(false,&ri_hists,cache_size,sample_rate,&samples_per_phase,verbose,debug).unwrap();
+   let (leases,dual_leases, lease_hits,trace_length) = cshel::lease_gen::shel_cshel(false,&ri_hists,cache_size,sample_rate,&samples_per_phase,discretize_width, 
+    verbose,debug).unwrap();
   let lease_vectors=cshel::io::dump_leases(leases,dual_leases,lease_hits,trace_length,&output_file_name[..],misses_from_first_access);
    let output_lease_file_name=format!("{}/{}_{}_{}",matches.value_of("OUTPUT").unwrap(),&cap[2],&cap[1],"lease.c");
    //generate lease file
@@ -109,7 +110,8 @@ fn main(){
   //generate CSHEL if option specified
    if cshel {
     //generate leases
-     let (leases, dual_leases, lease_hits,trace_length) = cshel::lease_gen::shel_cshel(true,&ri_hists,cache_size,sample_rate,&samples_per_phase,verbose,debug).unwrap();
+     let (leases, dual_leases, lease_hits,trace_length) = cshel::lease_gen::shel_cshel(true,&ri_hists,cache_size,sample_rate,&samples_per_phase,discretize_width,
+        verbose,debug).unwrap();
        //compose output file name
     output_file_name=format!("{}/{}_{}_{}",matches.value_of("OUTPUT").unwrap(),&cap[2],"c-shel","leases");
       //output to file

@@ -810,6 +810,7 @@ pub mod lease_gen {
                 binned_freqs: &BinFreqs,
                 sample_rate : u64,
                 cache_size : u64,
+                discretize: u64,
                 samples_per_phase : &HashMap<u64,u64>,
                 verbose: bool,)-> Option<(HashMap<u64,u64>,HashMap<u64,(f64,u64)>,HashMap<u64,HashMap<u64,u64>>,u64)>{
         let mut new_lease: PPUC;
@@ -817,6 +818,8 @@ pub mod lease_gen {
         let mut trace_length : u64=0;
         let bin_target:u64=bin_width*cache_size;
         let mut bin_endpoints:Vec<u64>=Vec::new();
+        let min_alpha=(((2<<(discretize-1)) as f64)-1.5 as f64)/(((2<<(discretize-1)) as f64)-1.0 as f64); //threshold for meaningful dual lease
+
         if verbose{
         println!("bin_width:  {}",bin_width);
     }
@@ -980,7 +983,7 @@ pub mod lease_gen {
                 sorted_bins.sort_by(|a,b| a.1.partial_cmp(&b.1).unwrap());
                 acceptable_ratio= if num_full_bins==0 {sorted_bins[0].1} else {0.0};
                
-                if acceptable_ratio>0.0{
+                if acceptable_ratio>min_alpha{
                     dual_leases.insert(addr,(acceptable_ratio as f64,new_lease.lease));
                         let mut print_string:String=String::new();
                     for (bin,_sat) in &bin_saturation.clone(){
@@ -1007,6 +1010,7 @@ pub mod lease_gen {
                   cache_size : u64, 
                   sample_rate : u64, 
                   samples_per_phase : &HashMap<u64,u64>,
+                  discretize : u64,
                   verbose: bool,
                   debug: bool) -> Option<(HashMap<u64,u64>,HashMap<u64,(f64,u64)>,HashMap<u64,HashMap<u64,u64>>,u64)> {
 
@@ -1029,8 +1033,8 @@ pub mod lease_gen {
             println!("---------Dump Samples Per Phase---");
             println!("{:?}",&samples_per_phase);
         }
-
-        //initialize ppucs
+        let min_alpha:f64=1.0-(((2<<(discretize-1)) as f64)-1.5 as f64)/(((2<<(discretize-1)) as f64)-1.0 as f64); //threshold for meaningful dual lease
+         //initialize ppucs
         let mut ppuc_tree = BinaryHeap::new();
 
         for (&ref_id, ri_hist) in ri_hists.ri_hists.iter(){
@@ -1216,14 +1220,14 @@ pub mod lease_gen {
                 }
                 //if the alpha we wish to assign would result in a long lease that is never used because the short lease probabiliy will be 1 after descretizing
                 //don't assign dual lease.
-                if current_phase_alpha<0.000978474{
+                if current_phase_alpha<min_alpha{
                      println!("Assigning lease {:x} with percentage {} to reference ({},{:x}) would not be meaningful.", 
                                  new_lease.lease,current_phase_alpha,(new_lease.ref_id & 0xFF000000) >> 24, 
                                  new_lease.ref_id & 0x00FFFFFF);
                     continue;
                 }
            
-                if alpha >= 0.000978474{
+                if alpha > min_alpha{
                     
                     //update cache use
                     for phase in &phase_ids{
@@ -1242,7 +1246,7 @@ pub mod lease_gen {
                 
               if cshel{
                     //if there's no alpha that would assign a meaningful dual lease that wouldn't put other phases over budget
-                    if alpha <0.000978474{
+                    if alpha <=min_alpha{
                         let mut new_costs=HashMap::new();
                         let mut new_alpha=HashMap::new();
                         let mut adjust_lease=true;
@@ -1271,10 +1275,10 @@ pub mod lease_gen {
                                      if past_cost_max!=0{
                                          //if previous long lease didn't fill phase, could be greater than one
                                         let phase_alpha=super::helpers::float_min(1.0,remaining_budget as f64/past_cost_max as f64);
-                                        if phase_alpha<0.000978474{
+                                        if phase_alpha<=min_alpha{
                                             let old_phase_ref=last_lease_cost.get(phase).unwrap().2;
                                             dual_leases.get(&old_phase_ref).unwrap().1;
-                                              println!("Assigning lease {:x} with percentage {} to reference ({},{:x}) would not be meaningful.", 
+                                              println!("Assigning adjusted dual lease {:x} with percentage {} to reference ({},{:x}) would not be meaningful.", 
                                         new_lease.lease,phase_alpha,phase,old_phase_ref);
                                         }
 
