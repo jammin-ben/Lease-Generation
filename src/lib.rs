@@ -910,16 +910,17 @@ pub mod lease_gen {
         for addr in addrs{
             leases.insert(addr&0x00FFFFFF,1);
            // update saturation to take into account each reference having a lease of 1
-            for (bin,_sat) in &bin_saturation.clone(){
+            for (bin,_sat) in bin_saturation.clone(){
                 for set in 0..num_sets{
-                    if  binned_ris.bin_ri_distribution.get(bin).unwrap().contains_key(&addr){
-                        let  old_avg_lease=get_avg_lease(binned_ris,&addr,*bin,0);
-                        let avg_lease =get_avg_lease(binned_ris,&addr,*bin,1);
+                    if  binned_ris.bin_ri_distribution.get(&bin).unwrap().contains_key(&addr){
+                        let  old_avg_lease=get_avg_lease(binned_ris,&addr,bin,0);
+                        let avg_lease =get_avg_lease(binned_ris,&addr,bin,1);
                         let impact= (avg_lease as f64-old_avg_lease as f64)*&(sample_rate as f64);
-                        bin_saturation.get_mut(&bin).unwrap().insert(set,impact);
+                        let bin_saturation_set=bin_saturation.get_mut(&bin).unwrap();
+                        bin_saturation_set.insert(set,bin_saturation_set.get(&set).unwrap()+impact);
                     }
                      //init impact dict for later
-                        impact_dict.entry(*bin).or_insert(HashMap::new()).entry(set).or_insert(0.0);
+                        impact_dict.entry(bin).or_insert(HashMap::new()).entry(set).or_insert(0.0);
                 }
             }
        }
@@ -1188,12 +1189,7 @@ pub mod lease_gen {
                                                             1,
                                                             &ri_hists),
                   };
-                  if cost_per_phase.get(&phase)==None{
-                    cost_per_phase.insert(phase,HashMap::new());
-                  }
-                  else {
-                   cost_per_phase.get_mut(&phase).unwrap().insert(set,new_cost);
-                 }
+                *cost_per_phase.entry(phase).or_insert(HashMap::new()).entry(set).or_insert(0)+=new_cost;
              }
             
          }
@@ -1521,6 +1517,10 @@ pub mod lease_gen {
 
                     //store cost of dual lease and store cost of lease with no dual lease and the reference for that lease
                      for set in 0..num_sets{
+                        if last_lease_cost.get_mut(&phase)==None{
+                            last_lease_cost.entry(phase).or_insert(HashMap::new());
+                        }
+
                       last_lease_cost.get_mut(&phase).unwrap().insert(set,((*new_phase_ref_cost.get(&phase).unwrap().get(&set).unwrap() as f64 *alpha).round() as u64,
                         *new_phase_ref_cost.get(&phase).unwrap().get(&set).unwrap(),ref_id&0xFFFFFFFF));
                     }  
