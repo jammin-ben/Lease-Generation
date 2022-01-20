@@ -9,6 +9,8 @@ pub mod io {
     use std::collections::BinaryHeap;
     use std::collections::HashMap;
     use std::io::Write;
+    use std::convert::TryInto;
+    use std::fs::File;
     
 
 
@@ -156,7 +158,7 @@ pub mod io {
         }
         //empircally calculate sampling rate
         let sampling_rate=(last_sample_time as f64/sample_num as f64).round() as u64;
-        println!("sampling_rate:{}",sampling_rate);
+        println!("empirical sampling_rate:{}",sampling_rate);
         //every data block is associated with at least one miss in the absense of hardware prefetching.
         let first_misses=u_tags.len();
        
@@ -219,7 +221,7 @@ pub mod io {
 
                  if ri_signed < 0 {
                    use_time=reuse_time -(!ri_signed+1)as u64;
-                    ri_signed = i32::MAX; //canonical value for negatives
+                    ri_signed = 16777215; //canonical value for negatives
                 }
                 else {
                     use_time = reuse_time - ri_signed as u64;
@@ -262,7 +264,7 @@ pub mod io {
 
                 if ri_signed < 0 {
                    use_time=reuse_time -(!ri_signed+1)as u64;
-                    ri_signed = i32::MAX; //canonical value for negatives
+                    ri_signed = 16777215; //canonical value for negatives
                 }
                 else {
                     use_time = reuse_time - ri_signed as u64;
@@ -292,7 +294,10 @@ pub mod io {
                 let mut ri = u64::from_str_radix(&sample.ri,16).unwrap();
                 let _reuse_time = sample.time;
                 //if sample is negative, there is no reuse 
-                ri = std::cmp::min(ri,i32::MAX as u64);
+                 let ri_signed = ri as i32;
+                if ri_signed < 0 {
+                    ri=16777215;
+                }
 
                 let phase_id_ref = u64::from_str_radix(&sample.phase_id_ref,16).unwrap();
                 let tag = u32::from_str_radix(&sample.tag,16).unwrap();
@@ -331,21 +336,23 @@ pub mod io {
         } 
         lease_vector.sort_by_key(|a| (a.0,a.1)); //sort by phase and then by reference
         //get number of predicted misses
-        for (_phase, address, lease_short, lease_long, percentage) in lease_vector.iter(){
+        for (phase, address, lease_short, lease_long, percentage) in lease_vector.iter(){
             
+            //reassemble phase address
+            let phase_address=address|phase<<24;
             //we are assuming that our sampling captures all RIS by assuming the distribution is normal
             //thus if an RI for a reference didn't occur during runtime (i.e., the base lease of 1 that all references get) 
-            //we can assume the number of hits it gets is zero, and moreover, even if that reuse interval does happen, we have no way
-            if lease_hits.get(address).unwrap().get(lease_short)!=None{
-                num_hits+=(*lease_hits.get(address).unwrap().get(lease_short).unwrap() as f64 *(percentage)).round() as u64;
+            //we can assume the number of hits it gets is zero.
+            if lease_hits.get(&phase_address).unwrap().get(lease_short)!=None{
+                num_hits+=(*lease_hits.get(&phase_address).unwrap().get(lease_short).unwrap() as f64 *(percentage)).round() as u64;
             }
-            if lease_hits.get(address).unwrap().get(lease_long)!=None{
-                num_hits+=(*lease_hits.get(address).unwrap().get(lease_long).unwrap() as f64 *(1.0-percentage)).round() as u64;
+            if lease_hits.get(&phase_address).unwrap().get(lease_long)!=None{
+                num_hits+=(*lease_hits.get(&phase_address).unwrap().get(lease_long).unwrap() as f64 *(1.0-percentage)).round() as u64;
             }
             
          }
          println!("Writing output to: {}",output_file);
-         let mut file = std::fs::File::create(output_file).expect("create failed");
+         let mut file = File::create(output_file).expect("create failed");
          file.write_all(&format!("Dump predicted miss count (no contention misses): {}\n",trace_length-num_hits*sampling_rate+first_misses as u64)[..].as_bytes()).expect("write failed");
          file.write_all("Dump formated leases\n".as_bytes()).expect("write failed");
 
@@ -369,7 +376,7 @@ pub mod io {
     }
 // function for generating c-files
     pub fn gen_lease_c_file(
-        mut lease_vector:Vec<(u64,u64,u64,u64,f64)>,llt_size:usize,mem_size:usize,output_file:String,discretize_width:u64){
+        mut lease_vector:Vec<(u64,u64,u64,u64,f64)>,llt_size:u64,max_num_scopes:u64,mem_size:u64,output_file:String,discretize_width:u64){
     
     let mut phase_lease_arr:HashMap<u64,HashMap<u64,(u64,u64,f64,bool)>>=HashMap::new();
     let mut phases:Vec<u64>=Vec::new();
@@ -378,9 +385,12 @@ pub mod io {
             phases.push(lease.0);
         }
     }
-    //due to the way we store leases in memory, we can't skip any phases so 
+    //due to the way the lease cache operates, phases skipped 
     //if there are phases with no leases, assign a dummy lease to the skipped phase
-    for phase in 0..*phases.iter().max().unwrap(){
+    //Since we have no way of knowing without adding another dependency how many phases a program has
+    //create dummy phases for all phases that can fit in memory that aren't represented
+    
+    for phase in 0..max_num_scopes{
         if !phases.contains(&phase){
             lease_vector.push((phase,0,0,0,1.0));
         }
@@ -396,7 +406,7 @@ pub mod io {
 
       //make sure each phase can fit in the specified LLT
       for (phase,phase_leases) in phase_lease_arr.iter(){
-        if phase_leases.len()>llt_size {
+        if phase_leases.len()>llt_size as usize {
             println!("Leases for Phase {} don't fit in lease lookup table!",phase);
             panic!();
         }
@@ -404,7 +414,7 @@ pub mod io {
       }
 
       //make sure that all phases can fit in the memory allocated
-      if (4*(2*llt_size)+16*4)*phase_lease_arr.len()>mem_size{
+      if *phases.iter().max().unwrap()>max_num_scopes{
         println!("Error: phases cannot fit in specified {} byte memory",mem_size);
             panic!();
       }
@@ -430,7 +440,7 @@ pub mod io {
             dual_lease_ref=(*lease_ref,lease_data.1,lease_data.2);
         }          
        }
-      
+      lease_phase.sort_by_key(|a| a.0);
        //output config
        for j in 0..16{
                 if j==0{
@@ -463,12 +473,12 @@ file.write_all(format!("\t0x{:08x},\t // unused\n",0).as_bytes()).expect("write 
             
 
             for j in 0..llt_size{
-                if j<phase_leases.len(){
+                if j<phase_leases.len().try_into().unwrap(){
                     if k==0 {
-                        file.write_all(format!("0x{:08x}",lease_phase[j].0).as_bytes()).expect("write failed");
+                        file.write_all(format!("0x{:08x}",lease_phase[j as usize].0).as_bytes()).expect("write failed");
                     }
                     else {
-                        file.write_all(format!("0x{:08x}",lease_phase[j].1).as_bytes()).expect("write failed");
+                        file.write_all(format!("0x{:08x}",lease_phase[j as usize].1).as_bytes()).expect("write failed");
                     }
                 }
                 else {
@@ -517,6 +527,19 @@ file.write_all(format!("\t0x{:08x},\t // unused\n",0).as_bytes()).expect("write 
                                  cost.1);
                     }
                 }
+            }
+        }
+        //<u64,HashMap<u64,HashMap<u64,u64>>>
+        pub fn print_binned_hists(binned_ris: &super::super::lease_gen::BinnedRIs){
+            for (bin, ref_ri_hist) in &binned_ris.bin_ri_distribution{
+                println!("Bin:{}",bin);
+                for (ref_id, ri_hist) in ref_ri_hist{
+                    println!(" | ref 0x{:x}:",ref_id);
+                    for (ri,count) in ri_hist{
+                        println!(" | | ri 0x{:x}: count {}",ri,count);
+                    }
+                }
+
             }
         }
 
@@ -888,6 +911,14 @@ pub mod lease_gen {
          let bin_target:u64=bin_width*cache_size/num_sets;
        let min_alpha=1.0-(((2<<(discretize-1)) as f64)-1.5 as f64)/(((2<<(discretize-1)) as f64)-1.0 as f64); //threshold for meaningful dual lease
 
+        if verbose {
+            println!("---------Dump Binned RI Hists------------");
+             super::io::debug::print_binned_hists(&binned_ris);
+            println!("---------Dump Reference Frequency per bin---");
+            println!("{:?}",&binned_freqs);
+         }
+        
+
         if verbose{
         println!("bin_width:  {}",bin_width);
          }
@@ -939,7 +970,7 @@ pub mod lease_gen {
        // get lease hits assuming a base lease of 0
         for _r in ppuc_tree.clone(){
             let lease= ppuc_tree.pop().unwrap();
-            lease_hits.entry(lease.ref_id&0x00FFFFFF).or_insert(HashMap::new()).entry(lease.lease).or_insert(lease.new_hits);
+            lease_hits.entry(lease.ref_id).or_insert(HashMap::new()).entry(lease.lease).or_insert(lease.new_hits);
       }
         //reinitallize ppuc tree, assuming a base lease of 1
         for (&ref_id, ri_hist) in ri_hists.ri_hists.iter(){
@@ -1137,11 +1168,12 @@ pub mod lease_gen {
                 ppuc_tree.push(*ppuc);
             }
         }
+
        // get lease hits assuming a base lease of 0
         for _r in ppuc_tree.clone(){
             let lease= ppuc_tree.pop().unwrap();
             //sum hits for reference over all sets
-            *lease_hits.entry(lease.ref_id&0x00FFFFFF).or_insert(HashMap::new()).entry(lease.lease).or_insert(0)+=lease.new_hits;
+            *lease_hits.entry(lease.ref_id).or_insert(HashMap::new()).entry(lease.lease).or_insert(0)+=lease.new_hits;
 
       }
         //reinitallize ppuc tree, assuming a base lease of 1
@@ -1218,7 +1250,6 @@ pub mod lease_gen {
                     }
                 }
             //if any set in phase is full, skip
-            // if   dual_lease_phases.contains(&(new_lease.ref_id>>24)){  
                 if set_full{
                     continue;
                 }
@@ -1261,6 +1292,7 @@ pub mod lease_gen {
                     }
                 }
             }
+
             if verbose & debug {
                  println!("\nDebug: budgets per phase {:?}",&budget_per_phase);
                 println!("Debug: Current cost budgets {:?}",&cost_per_phase);
@@ -1561,6 +1593,27 @@ pub mod lease_gen {
                              budget_per_phase.get(&phase).unwrap());
                 }*/
             }
+
+
+            if verbose {               
+                let mut hits_from_old_lease=0;
+                
+                if lease_hits.get(&new_lease.ref_id).unwrap().get(&old_lease)!=None{
+                    hits_from_old_lease=*lease_hits.get(&new_lease.ref_id).unwrap().get(&old_lease).unwrap();
+                }
+                let mut hits_from_new_lease=*lease_hits.get(&new_lease.ref_id).unwrap().get(&new_lease.lease).unwrap();
+                let long_lease_percentage:f64;
+                if dual_leases.get(&new_lease.ref_id)!=None{
+                    long_lease_percentage=dual_leases.get(&new_lease.ref_id).unwrap().0;
+                    let hits_without_dual=hits_from_new_lease;
+                    
+                    hits_from_new_lease=hits_without_dual-(hits_without_dual as 
+                        f64*(1.0-long_lease_percentage)) as u64+((1.0-long_lease_percentage)*hits_from_old_lease as f64)as u64;
+
+                }
+                println!("Additional hits from assigned lease:{}",(hits_from_new_lease-hits_from_old_lease)*sample_rate);
+
+            }
         }
     }
 }
@@ -1568,7 +1621,7 @@ pub mod lease_gen {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use super::io::*;
+    
     use super::io::debug::*;
     use super::helpers::*;
     use super::lease_gen::*;
