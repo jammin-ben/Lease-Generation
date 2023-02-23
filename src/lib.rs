@@ -1,7 +1,3 @@
-
-
-
-
 // Functions for parsing input files, debug prints, 
 // and lease output
 pub mod io {
@@ -11,9 +7,6 @@ pub mod io {
     use std::io::Write;
     use std::convert::TryInto;
     use std::fs::File;
-    
-
-
 
     #[derive(Deserialize)]
     #[derive(Debug)]
@@ -104,18 +97,12 @@ pub mod io {
             for key in &all_keys{
                 bin_freqs_temp.entry(*key).or_insert(0);
             }
-           
         }
-
         (super::lease_gen::BinnedRIs::new(bin_ri_distributions),super::lease_gen::BinFreqs::new(bin_freqs),bin_width)
     }
 
-
-
     pub fn build_phase_transitions(input_file:&str) -> (Vec<(u64,u64)>,usize,u64){
         println!("Reading input from: {}", input_file);
-
-
         let mut rdr = csv::ReaderBuilder::new()
             .has_headers(false)
             .from_path(input_file)
@@ -124,24 +111,15 @@ pub mod io {
         let mut sample_hash = HashMap::new();
         let mut last_sample_time: u64=0;
         let mut sample_num: u64=0;
-
         for result in rdr.deserialize() {
             let sample: Sample = result.unwrap();
             let ri = u64::from_str_radix(&sample.ri,16).unwrap();
-
-            
             //don't use end of benchmark infinite RIs
-           
 
             //store unique tags
              u_tags.insert(u64::from_str_radix(&sample.tag,16).unwrap(),false);
-
-        
             let phase_id_ref = u64::from_str_radix(&sample.phase_id_ref,16).unwrap();
-
             let phase_id = (phase_id_ref & 0xFF000000)>>24;
-
-           
             let reuse_time = sample.time;
             let use_time;
             if (ri as i32)<0 {
@@ -366,7 +344,7 @@ pub mod io {
         }
         return lease_vector;
     }
-  #[derive(Debug)]
+    #[derive(Debug)]
     struct LeaseItem{
         phase: String,
         reference:   String,
@@ -374,145 +352,151 @@ pub mod io {
         short_lease: String,
         short_lease_prob: f64,
     }
-// function for generating c-files
-    pub fn gen_lease_c_file(
-        mut lease_vector:Vec<(u64,u64,u64,u64,f64)>,llt_size:u64,max_num_scopes:u64,mem_size:u64,output_file:String,discretize_width:u64){
+    // function for generating c-files
+    pub fn gen_lease_c_file(mut lease_vector:Vec<(u64,u64,u64,u64,f64)>,
+                            llt_size:u64,
+                            max_num_scopes:u64,
+                            mem_size:u64,
+                            output_file:String,
+                            discretize_width:u64){
     
-    let mut phase_lease_arr:HashMap<u64,HashMap<u64,(u64,u64,f64,bool)>>=HashMap::new();
-    let mut phases:Vec<u64>=Vec::new();
-    for lease in lease_vector.iter(){
-        if !phases.contains(&lease.0){
-            phases.push(lease.0);
+        let mut phase_lease_arr:HashMap<u64,HashMap<u64,(u64,u64,f64,bool)>>=HashMap::new();
+        let mut phases:Vec<u64>=Vec::new();
+        for lease in lease_vector.iter(){
+            if !phases.contains(&lease.0){
+                phases.push(lease.0);
+            }
         }
-    }
-    //due to the way the lease cache operates, phases skipped 
-    //if there are phases with no leases, assign a dummy lease to the skipped phase
-    //Since we have no way of knowing without adding another dependency how many phases a program has
-    //create dummy phases for all phases that can fit in memory that aren't represented
-    
-    for phase in 0..max_num_scopes{
-        if !phases.contains(&phase){
-            lease_vector.push((phase,0,0,0,1.0));
+        //due to the way the lease cache operates, phases skipped 
+        //if there are phases with no leases, assign a dummy lease to the skipped phase
+        //Since we have no way of knowing without adding another dependency how many phases a program has
+        //create dummy phases for all phases that can fit in memory that aren't represented
+        for phase in 0..max_num_scopes{
+            if !phases.contains(&phase){
+                lease_vector.push((phase,0,0,0,1.0));
+            }
         }
-    }
+        //convert lease vector to hashmap of leases per phase
+        for (phase, address, lease_short, lease_long, percentage) in lease_vector.iter(){
+             phase_lease_arr.entry(*phase).or_insert(HashMap::new())
+                 .entry(*address)
+                 .or_insert((*lease_short,
+                             *lease_long,
+                             *percentage,
+                             if lease_long >&0 {true} else {false})); 
+        }
+        let default_lease=1;
 
+        //make sure each phase can fit in the specified LLT
+        for (phase,phase_leases) in phase_lease_arr.iter(){
+            if phase_leases.len()>llt_size as usize {
+                println!("Leases for Phase {} don't fit in lease lookup table!",phase);
+                panic!();
+            }
 
+        }
 
-    //convert lease vector to hashmap of leases per phase
-      for (phase, address, lease_short, lease_long, percentage) in lease_vector.iter(){
-         phase_lease_arr.entry(*phase).or_insert(HashMap::new()).entry(*address).or_insert((*lease_short,*lease_long,*percentage,if lease_long >&0 {true} else {false})); 
-      }
-      let default_lease=1;
-
-      //make sure each phase can fit in the specified LLT
-      for (phase,phase_leases) in phase_lease_arr.iter(){
-        if phase_leases.len()>llt_size as usize {
-            println!("Leases for Phase {} don't fit in lease lookup table!",phase);
+        //make sure that all phases can fit in the memory allocated
+        if *phases.iter().max().unwrap()>max_num_scopes{
+            println!("Error: phases cannot fit in specified {} byte memory",mem_size);
             panic!();
         }
-
-      }
-
-      //make sure that all phases can fit in the memory allocated
-      if *phases.iter().max().unwrap()>max_num_scopes{
-        println!("Error: phases cannot fit in specified {} byte memory",mem_size);
-            panic!();
-      }
-      //write header
-      let mut file = std::fs::File::create(output_file).expect("create failed");
-      file.write_all("#include \"stdint.h\"\n\n".as_bytes()).expect("write failed");
-      file.write_all(format!("static uint32_t lease[{}] __attribute__((section (\".lease\"))) __attribute__ ((__used__)) = {{\n",mem_size/4).as_bytes()).expect("write failed");
-      file.write_all("// lease header\n".as_bytes()).expect("write failed");
-      let mut phase_index:u64=0;//len returns usize which can't directly substituted as u64
-       for i in 0..phase_lease_arr.len(){
+        //write header
+        let mut file = std::fs::File::create(output_file).expect("create failed");
+        file.write_all("#include \"stdint.h\"\n\n".as_bytes()).expect("write failed");
+        file.write_all(
+            format!(
+                "static uint32_t lease[{}] __attribute__((section (\".lease\"))) __attribute__ ((__used__)) = {{\n",
+                mem_size/4)
+            .as_bytes())
+            .expect("write failed");
+        file.write_all("// lease header\n".as_bytes()).expect("write failed");
+        let mut phase_index:u64=0;//len returns usize which can't directly substituted as u64
+        for i in 0..phase_lease_arr.len(){
             let phase_leases=phase_lease_arr.get(&phase_index).unwrap();
             phase_index=phase_index+1; //increment to next phase
             file.write_all(format!("// phase {}\n",i).as_bytes()).expect("write failed");
-     
-        let mut dual_lease_ref=(0,0,1.0);
-                let mut lease_phase:Vec<(u64,u64)>=Vec::new();
-                let dual_lease_found=false;
-       for(lease_ref,lease_data) in phase_leases.iter(){
-           //convert hashmap of leases for phase to vector
-         lease_phase.push((*lease_ref,lease_data.0));
-         //get dual lease if it exists;
-         if lease_data.3==true && dual_lease_found==false {
-            dual_lease_ref=(*lease_ref,lease_data.1,lease_data.2);
-        }          
-       }
-      lease_phase.sort_by_key(|a| a.0);
-       //output config
-       for j in 0..16{
-                if j==0{
-                 file.write_all(format!("\t0x{:08x},\t// default lease\n",default_lease).as_bytes()).expect("write failed");
-                }
-                else if j==1{
-                  file.write_all(format!("\t0x{:08x},\t// long lease value\n",dual_lease_ref.1).as_bytes()).expect("write failed");
-                }
-                else if j==2{
-                    file.write_all(format!("\t0x{:08x},\t// short lease probability\n",discretize(dual_lease_ref.2,discretize_width)).as_bytes()).expect("write failed");
-                }
-                else if j==3{
-file.write_all(format!("\t0x{:08x},\t// num of references in phase\n",phase_leases.len()).as_bytes()).expect("write failed");
-  
-                }
-                else if j==4{
-file.write_all(format!("\t0x{:08x},\t// dual lease ref (word address)\n",dual_lease_ref.0>>2).as_bytes()).expect("write failed");
-  
-                }
-                else {
-file.write_all(format!("\t0x{:08x},\t // unused\n",0).as_bytes()).expect("write failed");
-                }
-        }
-        let field_list=["reference address","lease0 value"];
-       
-
-            // loop through lease fields
-        for k in 0..2{
-            file.write_all(format!("\t//{}\n\t",field_list[k]).as_bytes()).expect("write failed");
-            
-
-            for j in 0..llt_size{
-                if j<phase_leases.len().try_into().unwrap(){
-                    if k==0 {
-                        file.write_all(format!("0x{:08x}",lease_phase[j as usize].0).as_bytes()).expect("write failed");
+         
+            let mut dual_lease_ref=(0,0,1.0);
+            let mut lease_phase:Vec<(u64,u64)>=Vec::new();
+            let dual_lease_found=false;
+            for(lease_ref,lease_data) in phase_leases.iter(){
+                //convert hashmap of leases for phase to vector
+                lease_phase.push((*lease_ref,lease_data.0));
+                //get dual lease if it exists;
+                if lease_data.3==true && dual_lease_found==false {
+                    dual_lease_ref=(*lease_ref,lease_data.1,lease_data.2);
+                }          
+           }
+           lease_phase.sort_by_key(|a| a.0);
+           //output config
+           for j in 0..16{
+                    if j==0{
+                     file.write_all(format!("\t0x{:08x},\t// default lease\n",default_lease).as_bytes()).expect("write failed");
+                    }
+                    else if j==1{
+                      file.write_all(format!("\t0x{:08x},\t// long lease value\n",dual_lease_ref.1).as_bytes()).expect("write failed");
+                    }
+                    else if j==2{
+                        file.write_all(format!("\t0x{:08x},\t// short lease probability\n",discretize(dual_lease_ref.2,discretize_width)).as_bytes()).expect("write failed");
+                    }
+                    else if j==3{
+    file.write_all(format!("\t0x{:08x},\t// num of references in phase\n",phase_leases.len()).as_bytes()).expect("write failed");
+      
+                    }
+                    else if j==4{
+    file.write_all(format!("\t0x{:08x},\t// dual lease ref (word address)\n",dual_lease_ref.0>>2).as_bytes()).expect("write failed");
+      
                     }
                     else {
-                        file.write_all(format!("0x{:08x}",lease_phase[j as usize].1).as_bytes()).expect("write failed");
+    file.write_all(format!("\t0x{:08x},\t // unused\n",0).as_bytes()).expect("write failed");
                     }
-                }
-                else {
-                    file.write_all(format!("0x{:08x}",0).as_bytes()).expect("write failed");
-                }
-                //print delimiter
-                if j+1==llt_size && k==1 && i+1 ==phase_lease_arr.len(){
-                    file.write_all(format!("\n").as_bytes()).expect("write failed");
-                }
-                else if j+1==llt_size{
-                    file.write_all(format!(",\n").as_bytes()).expect("write failed");
-                }
-                else if ((j+1)%10)==0{
-                    file.write_all(format!(",\n\t").as_bytes()).expect("write failed");
-                }
-                else {
-                    file.write_all(format!(", ").as_bytes()).expect("write failed");
-                }
-   
             }
+            let field_list=["reference address","lease0 value"];
+           
+
+                // loop through lease fields
+            for k in 0..2{
+                file.write_all(format!("\t//{}\n\t",field_list[k]).as_bytes()).expect("write failed");
+                
+
+                for j in 0..llt_size{
+                    if j<phase_leases.len().try_into().unwrap(){
+                        if k==0 {
+                            file.write_all(format!("0x{:08x}",lease_phase[j as usize].0).as_bytes()).expect("write failed");
+                        }
+                        else {
+                            file.write_all(format!("0x{:08x}",lease_phase[j as usize].1).as_bytes()).expect("write failed");
+                        }
+                    }
+                    else {
+                        file.write_all(format!("0x{:08x}",0).as_bytes()).expect("write failed");
+                    }
+                    //print delimiter
+                    if j+1==llt_size && k==1 && i+1 ==phase_lease_arr.len(){
+                        file.write_all(format!("\n").as_bytes()).expect("write failed");
+                    }
+                    else if j+1==llt_size{
+                        file.write_all(format!(",\n").as_bytes()).expect("write failed");
+                    }
+                    else if ((j+1)%10)==0{
+                        file.write_all(format!(",\n\t").as_bytes()).expect("write failed");
+                    }
+                    else {
+                        file.write_all(format!(", ").as_bytes()).expect("write failed");
+                    }
+       
+                }
+            }
+
         }
-
+      file.write_all(format!("}};").as_bytes()).expect("write failed");
     }
-  file.write_all(format!("}};").as_bytes()).expect("write failed");
-}
 
-
-        pub fn discretize(percentage: f64,discretization:u64)->u64{
-            let percentage_binary =((percentage*((2<<(discretization-1)) as f64)-1.0)).round() as u64;
-            return percentage_binary;
-        }    
-    
-
-
+    pub fn discretize(percentage: f64,discretization:u64)->u64{
+        let percentage_binary =((percentage*((2<<(discretization-1)) as f64)-1.0)).round() as u64;
+        return percentage_binary;
+    }    
     
     pub mod debug {
         pub fn print_ri_hists(rihists: &super::super::lease_gen::RIHists){

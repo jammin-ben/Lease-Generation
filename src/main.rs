@@ -91,7 +91,7 @@ M. Gould <mdg2838@rit.edu>")
     let cap= re.captures(&*search_string).unwrap();
     let empirical_rate=matches.value_of("EMPIRICAL_SAMPLE_RATE").unwrap().to_lowercase();
 
-//if associativity not specified, set as fully associative
+    //if associativity not specified, set as fully associative
     let num_ways:u64;
     let num_ways_given=matches.value_of("SET ASSOCIATIVITY").unwrap().parse::<u64>().unwrap();
     if num_ways_given==0{
@@ -107,55 +107,161 @@ M. Gould <mdg2838@rit.edu>")
     //get mask for set bits
     let set_mask=(cache_size as f64 /num_ways as f64) as u32-1;
 
-//generate distributions
-       let (ri_hists,samples_per_phase,misses_from_first_access,empirical_sample_rate) = clam::io::build_ri_hists(matches.value_of("INPUT").unwrap(),cshel,set_mask);
+    //generate distributions
+    let (ri_hists,
+         samples_per_phase,
+         misses_from_first_access,
+         empirical_sample_rate) = clam::io::build_ri_hists(matches.value_of("INPUT").unwrap(),
+                                                           cshel,
+                                                           set_mask);
 
-//if specified used empirical sampling rate else use given or default rate.
-    let sample_rate=if empirical_rate=="no" {matches.value_of("SAMPLING_RATE").unwrap().parse::<u64>().unwrap()}
-    else {empirical_sample_rate};
+    //if specified used empirical sampling rate else use given or default rate.
+    let sample_rate = if empirical_rate == "no" {matches.value_of("SAMPLING_RATE")
+                                                .unwrap().parse::<u64>().unwrap()}
+                      else {empirical_sample_rate};
    
    //generates PRL
-   if prl {
-    //generate bins
-    let (binned_ri_distributions,binned_freqs,bin_width) = clam::io::get_binned_hists(matches.value_of("INPUT").unwrap(),perl_bin_num,set_mask);
-    //compose output file name
-    //this panic here avoids the almost certain panic that will result from running PRL on multi phase sampling files
-    if &cap[1]=="shel"{
-        panic!("Error! You can only use prl on sampling files with a single phase!");
-    }
-    output_file_name=format!("{}/{}_{}_{}",matches.value_of("OUTPUT").unwrap(),&cap[2],"prl","leases");
-    //generate prl leases
-    let (leases, dual_leases, lease_hits,trace_length) = clam::lease_gen::prl(bin_width,
-        &ri_hists,&binned_ri_distributions,&binned_freqs,sample_rate,cache_size,discretize_width,&samples_per_phase,verbose,debug,set_mask).unwrap();
-    println!("running PRL");
-    let lease_vectors=clam::io::dump_leases(leases,dual_leases,lease_hits,trace_length,&output_file_name[..],sample_rate,misses_from_first_access);
-    let output_lease_file_name=format!("{}/{}_{}_{}",matches.value_of("OUTPUT").unwrap(),&cap[2],"prl","lease.c");
-    clam::io::gen_lease_c_file(lease_vectors,llt_size,max_scopes,mem_size,output_lease_file_name,discretize_width);
-   }
- 
-   println!("running {}",&cap[1]);
-    output_file_name=format!("{}/{}_{}_{}",matches.value_of("OUTPUT").unwrap(),&cap[2],&cap[1],"leases");
-       //generates based on input file phases, CLAM or SHEL 
-   let (leases,dual_leases, lease_hits,trace_length) = clam::lease_gen::shel_cshel(false,&ri_hists,cache_size,sample_rate,&samples_per_phase,discretize_width, 
-    verbose,debug,set_mask).unwrap();
-  let lease_vectors=clam::io::dump_leases(leases,dual_leases,lease_hits,trace_length,&output_file_name[..],sample_rate,misses_from_first_access);
-   let output_lease_file_name=format!("{}/{}_{}_{}",matches.value_of("OUTPUT").unwrap(),&cap[2],&cap[1],"lease.c");
-   //generate lease file
- clam::io::gen_lease_c_file(lease_vectors,llt_size,max_scopes,mem_size,output_lease_file_name,discretize_width);
-  //generate CSHEL if option specified
-   if cshel {
-    //generate leases
-    println!("Running C-SHEL.");
-     let (leases, dual_leases, lease_hits,trace_length) = clam::lease_gen::shel_cshel(true,&ri_hists,cache_size,sample_rate,&samples_per_phase,discretize_width,
-        verbose,debug,set_mask).unwrap();
-       //compose output file name
-    output_file_name=format!("{}/{}_{}_{}",matches.value_of("OUTPUT").unwrap(),&cap[2],"c-shel","leases");
-      //output to file
-      let output_lease_file_name=format!("{}/{}_{}_{}",matches.value_of("OUTPUT").unwrap(),&cap[2],"c-shel","lease.c");
-    let lease_vectors=clam::io::dump_leases(leases,dual_leases,lease_hits,trace_length,&output_file_name[..],sample_rate,misses_from_first_access);
-     clam::io::gen_lease_c_file(lease_vectors,llt_size,max_scopes,mem_size,output_lease_file_name,discretize_width);
-    }
+    if prl {
+        //generate bins
+        let (binned_ri_distributions,
+             binned_freqs,
+             bin_width) = clam::io::get_binned_hists(matches.value_of("INPUT")
+                                                     .unwrap(),perl_bin_num,set_mask);
+        //compose output file name
+        //this panic here avoids the almost certain panic that will result from 
+        //running PRL on multi phase sampling files
+        if &cap[1]=="shel"{
+            panic!("Error! You can only use prl on sampling files with a single phase!");
+        }
+        output_file_name=format!("{}/{}_{}_{}",matches.value_of("OUTPUT")
+                                 .unwrap(),&cap[2],"prl","leases");
+        //generate prl leases
+        let (leases, 
+             dual_leases, 
+             lease_hits,
+             trace_length) = clam::lease_gen::prl(bin_width,
+                                                  &ri_hists,
+                                                  &binned_ri_distributions,
+                                                  &binned_freqs,
+                                                  sample_rate,
+                                                  cache_size,
+                                                  discretize_width,
+                                                  &samples_per_phase,
+                                                  verbose,
+                                                  debug,
+                                                  set_mask).unwrap();
 
+        println!("running PRL");
+
+        let lease_vectors=clam::io::dump_leases(leases,
+                                                dual_leases,
+                                                lease_hits,
+                                                trace_length,
+                                                &output_file_name[..],
+                                                sample_rate,
+                                                misses_from_first_access);
+
+        let output_lease_file_name=format!("{}/{}_{}_{}",
+                                           matches.value_of("OUTPUT").unwrap(),
+                                           &cap[2],
+                                           "prl",
+                                           "lease.c");
+
+        clam::io::gen_lease_c_file(lease_vectors,
+                                   llt_size,
+                                   max_scopes,
+                                   mem_size,
+                                   output_lease_file_name,
+                                   discretize_width);
+    }
+ 
+    println!("running {}",&cap[1]);
+    output_file_name = format!("{}/{}_{}_{}",
+                               matches.value_of("OUTPUT").unwrap(),
+                               &cap[2],
+                               &cap[1],
+                               "leases");
+       
+    //generates based on input file phases, CLAM or SHEL 
+    let (leases,
+         dual_leases, 
+         lease_hits,
+         trace_length) = clam::lease_gen::shel_cshel(false,
+                                                     &ri_hists,
+                                                     cache_size,
+                                                     sample_rate,
+                                                     &samples_per_phase,
+                                                     discretize_width, 
+                                                     verbose,
+                                                     debug,
+                                                     set_mask).unwrap();
+
+    let lease_vectors=clam::io::dump_leases(leases,
+                                            dual_leases,
+                                            lease_hits,
+                                            trace_length,
+                                            &output_file_name[..],
+                                            sample_rate,
+                                            misses_from_first_access);
+    
+    let output_lease_file_name=format!("{}/{}_{}_{}",
+                                       matches.value_of("OUTPUT").unwrap(),
+                                       &cap[2],
+                                       &cap[1],
+                                       "lease.c");
+    //generate lease file
+    clam::io::gen_lease_c_file(lease_vectors,
+                               llt_size,
+                               max_scopes,
+                               mem_size,
+                               output_lease_file_name,
+                               discretize_width);
+
+    //generate CSHEL if option specified
+    if cshel {
+        //generate leases
+        println!("Running C-SHEL.");
+        let (leases, 
+             dual_leases, 
+             lease_hits,
+             trace_length) = clam::lease_gen::shel_cshel(true,
+                                                         &ri_hists,
+                                                         cache_size,
+                                                         sample_rate,
+                                                         &samples_per_phase,
+                                                         discretize_width,
+                                                         verbose,
+                                                         debug,
+                                                         set_mask).unwrap();
+        //compose output file name
+        output_file_name = format!("{}/{}_{}_{}",
+                                 matches.value_of("OUTPUT").unwrap(),
+                                 &cap[2],
+                                 "c-shel",
+                                 "leases");
+
+        //output to file
+        let output_lease_file_name = format!("{}/{}_{}_{}",
+                                             matches.value_of("OUTPUT").unwrap(),
+                                             &cap[2],
+                                             "c-shel",
+                                             "lease.c");
+
+        let lease_vectors = clam::io::dump_leases(leases,
+                                                  dual_leases,
+                                                  lease_hits,
+                                                  trace_length,
+                                                  &output_file_name[..],
+                                                  sample_rate,
+                                                  misses_from_first_access);
+
+        clam::io::gen_lease_c_file(lease_vectors,
+                                   llt_size,
+                                   max_scopes,
+                                   mem_size,
+                                   output_lease_file_name,
+                                   discretize_width);
+    }
 }
 
 
