@@ -124,7 +124,7 @@ pub mod io {
             let reuse_time = sample.time;
             let use_time;
             if (ri as i32)<0 {
-               use_time=reuse_time -(!ri+1)as u64;
+                use_time = reuse_time - (ri as i32).abs() as u64;
             }
             else{
                 use_time = reuse_time - ri as u64;
