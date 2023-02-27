@@ -74,22 +74,22 @@ M. Gould <mdg2838@rit.edu>")
              .required(false)).get_matches();
     
 
-    let cache_size=matches.value_of("CACHE_SIZE").unwrap().parse::<u64>().unwrap();
-    let perl_bin_num =matches.value_of("PRL").unwrap().parse::<u64>().unwrap();
-    let llt_size=matches.value_of("LLT_SIZE").unwrap().parse::<u64>().unwrap();
-    let mem_size=matches.value_of("MEM_SIZE").unwrap().parse::<u64>().unwrap();
+    let cache_size = matches.value_of("CACHE_SIZE").unwrap().parse::<u64>().unwrap();
+    let perl_bin_num = matches.value_of("PRL").unwrap().parse::<u64>().unwrap();
+    let llt_size = matches.value_of("LLT_SIZE").unwrap().parse::<u64>().unwrap();
+    let mem_size = matches.value_of("MEM_SIZE").unwrap().parse::<u64>().unwrap();
     //get maximum number of scopes that can fit in given memory size with given llt size
-    let max_scopes=mem_size/((2*llt_size + 16)*4);
-    let discretize_width=matches.value_of("DISCRETIZE_WIDTH").unwrap().parse::<u64>().unwrap();
+    let max_scopes = mem_size/((2*llt_size + 16)*4);
+    let discretize_width = matches.value_of("DISCRETIZE_WIDTH").unwrap().parse::<u64>().unwrap();
     let verbose = matches.is_present("VERBOSE");
     let debug   = matches.is_present("DEBUG");
     let cshel   = matches.is_present("CSHEL");
-    let prl =matches.occurrences_of("PRL")>0;
+    let prl = matches.occurrences_of("PRL")>0;
     let mut output_file_name:String;
-    let re= Regex::new(r"/(clam|shel).*/(.*?)\.txt$").unwrap();
-    let search_string=matches.value_of("INPUT").unwrap().to_lowercase();
-    let cap= re.captures(&*search_string).unwrap();
-    let empirical_rate=matches.value_of("EMPIRICAL_SAMPLE_RATE").unwrap().to_lowercase();
+    let re = Regex::new(r"/(clam|shel).*/(.*?)\.txt$").unwrap();
+    let search_string = matches.value_of("INPUT").unwrap().to_lowercase();
+    let cap = re.captures(&*search_string).unwrap();
+    let empirical_rate = matches.value_of("EMPIRICAL_SAMPLE_RATE").unwrap().to_lowercase();
 
     //if associativity not specified, set as fully associative
     let num_ways:u64;
@@ -120,7 +120,6 @@ M. Gould <mdg2838@rit.edu>")
                                                 .unwrap().parse::<u64>().unwrap()}
                       else {empirical_sample_rate};
    
-   //generates PRL
     if prl {
         //generate bins
         let (binned_ri_distributions,
