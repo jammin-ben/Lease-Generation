@@ -266,7 +266,8 @@ pub mod io {
                                          next_phase_tuple);
             }
         }
-        //if not doing C-SHEL generates RI distribution with head and tail costs set to 0 (significantly faster)
+        //if not doing C-SHEL generates RI distribution with head 
+        //and tail costs set to 0 (significantly faster)
         else{
             for result in rdr.deserialize() {
                 let sample: Sample = result.unwrap();
@@ -285,9 +286,15 @@ pub mod io {
                 let phase_id = (phase_id_ref & 0xFF000000)>>24;
                 *samples_per_phase.entry(phase_id).or_insert(0)+=1;
                 //if the reference isn't in the distrubtion add it
-                //if an ri for that reference isn't in the distrubtion add it as key with a value of (ri_count,{phaseID,(0,0)))
-                //if an ri for that reference is in the distribuntion increment the ri count by 1
-               ri_hists.entry(set_phase_id_ref).or_insert(HashMap::new()).entry(ri).and_modify(|e| {e.0+=1}).or_insert((1,HashMap::new())).1.entry(phase_id).or_insert((0,0));
+                //if an ri for that reference isn't in the distrubtion
+                //add it as key with a value of (ri_count,{phaseID,(0,0)))
+                //if an ri for that reference is in the distribution 
+                //increment the ri count by 1
+                ri_hists.entry(set_phase_id_ref)
+                    .or_insert(HashMap::new())
+                    .entry(ri).and_modify(|e| {e.0+=1})
+                        .or_insert((1,HashMap::new())).1.entry(phase_id)
+                            .or_insert((0,0));
             }
         }
         (super::lease_gen::RIHists::new(ri_hists),samples_per_phase,first_misses,sampling_rate)
@@ -307,7 +314,8 @@ pub mod io {
             let phase   = (phase_address & 0xFF000000)>>24;
             let address =  phase_address & 0x00FFFFFF;
             if dual_leases.contains_key(&phase_address){
-               lease_vector.push((phase,address,lease,dual_leases.get(&phase_address).unwrap().1,1.0-dual_leases.get(&phase_address).unwrap().0));
+               lease_vector.push((phase,address,lease,dual_leases.get(&phase_address)
+                                  .unwrap().1,1.0-dual_leases.get(&phase_address).unwrap().0));
             }
             else {
                 lease_vector.push((phase,address,lease,0, 1.0));
@@ -319,20 +327,28 @@ pub mod io {
             
             //reassemble phase address
             let phase_address=address|phase<<24;
-            //we are assuming that our sampling captures all RIS by assuming the distribution is normal
-            //thus if an RI for a reference didn't occur during runtime (i.e., the base lease of 1 that all references get) 
+            //we are assuming that our sampling captures all RIS 
+            //by assuming the distribution is normal
+            //thus if an RI for a reference didn't occur during runtime 
+            //(i.e., the base lease of 1 that all references get) 
             //we can assume the number of hits it gets is zero.
             if lease_hits.get(&phase_address).unwrap().get(lease_short)!=None{
-                num_hits+=(*lease_hits.get(&phase_address).unwrap().get(lease_short).unwrap() as f64 *(percentage)).round() as u64;
+                num_hits+=(*lease_hits.get(&phase_address).unwrap()
+                                .get(lease_short).unwrap() as f64 *(percentage)).round() as u64;
             }
             if lease_hits.get(&phase_address).unwrap().get(lease_long)!=None{
-                num_hits+=(*lease_hits.get(&phase_address).unwrap().get(lease_long).unwrap() as f64 *(1.0-percentage)).round() as u64;
+                num_hits+=(*lease_hits.get(&phase_address).unwrap()
+                                .get(lease_long).unwrap() as f64 *(1.0-percentage)).round() as u64;
             }
             
          }
          println!("Writing output to: {}",output_file);
          let mut file = File::create(output_file).expect("create failed");
-         file.write_all(&format!("Dump predicted miss count (no contention misses): {}\n",trace_length-num_hits*sampling_rate+first_misses as u64)[..].as_bytes()).expect("write failed");
+
+         file.write_all(&format!("Dump predicted miss count (no contention misses): {}\n",
+            trace_length-num_hits*sampling_rate+first_misses as u64)[..].as_bytes())
+             .expect("write failed");
+
          file.write_all("Dump formated leases\n".as_bytes()).expect("write failed");
 
          for (phase, address, lease_short, lease_long, percentage) in lease_vector.iter(){
