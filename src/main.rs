@@ -150,6 +150,8 @@ M. Gould <mdg2838@rit.edu>")
                                                   debug,
                                                   set_mask).unwrap();
 
+        let (leases,dual_leases) =clam::lease_gen::prune_leases_to_fit_llt(leases,dual_leases,&ri_hists, llt_size);
+
         println!("running PRL");
 
         let lease_vectors=clam::io::dump_leases(leases,
@@ -195,6 +197,7 @@ M. Gould <mdg2838@rit.edu>")
                                                      debug,
                                                      set_mask).unwrap();
 
+    let (leases,dual_leases) =clam::lease_gen::prune_leases_to_fit_llt(leases, dual_leases, &ri_hists, llt_size);
     let lease_vectors=clam::io::dump_leases(leases,
                                             dual_leases,
                                             lease_hits,
@@ -232,6 +235,7 @@ M. Gould <mdg2838@rit.edu>")
                                                          verbose,
                                                          debug,
                                                          set_mask).unwrap();
+        let (leases,dual_leases) = clam::lease_gen::prune_leases_to_fit_llt(leases, dual_leases, &ri_hists, llt_size);
         //compose output file name
         output_file_name = format!("{}/{}_{}_{}",
                                  matches.value_of("OUTPUT").unwrap(),

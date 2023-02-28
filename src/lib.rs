@@ -299,6 +299,7 @@ pub mod io {
         }
         (super::lease_gen::RIHists::new(ri_hists),samples_per_phase,first_misses,sampling_rate)
     }
+
     pub fn dump_leases(leases: HashMap<u64,u64>, 
         dual_leases: HashMap<u64,(f64,u64)>,
         lease_hits:HashMap<u64,HashMap<u64,u64>>,
@@ -1128,13 +1129,16 @@ pub mod lease_gen {
         return references_per_phase;
     }
 
-    pub fn prune_leases_to_fit_llt(leases: &mut HashMap<u64,u64>,
-                                   dual_leases: &mut HashMap<u64,(f64,u64)>,
+    pub fn prune_leases_to_fit_llt(leases: HashMap<u64,u64>,
+                                   dual_leases: HashMap<u64,(f64,u64)>,
                                    ri_hists: &RIHists,
-                                   llt_size: u64){
+                                   llt_size: u64) -> (HashMap<u64,u64>, HashMap<u64,(f64,u64)>){
+
+        let mut pruned_leases : HashMap<u64,u64> = HashMap::new();
+        let mut pruned_dual_leases : HashMap<u64,(f64,u64)> = HashMap::new();
         let references_per_phase: HashMap<u64,u64> = get_num_leases_per_phase(&leases); 
-        for (_phase_id,lease_count) in references_per_phase.iter(){
-            if *lease_count > llt_size {
+        for (_phase_id,_lease_count) in references_per_phase.iter(){
+            //if *lease_count > llt_size {
                 let mut importance_per_reference: HashMap<u64,u64> = HashMap::new();
                 for (reference, _lease) in leases.iter(){
                     let ri_hist = ri_hists.get_ref_hist(*reference); 
@@ -1145,18 +1149,33 @@ pub mod lease_gen {
                     }
                     importance_per_reference.entry(*reference)
                             .or_insert(count);
-                    
                 }
                 let mut importance_vec: Vec<_> = importance_per_reference.iter().collect();
                 importance_vec.sort_by(|a, b| a.1.cmp(b.1).reverse());
                 
-                for i in llt_size..importance_vec.len() as u64{
-                    //remove all leases that are not important
-                    leases.remove(importance_vec[i as usize].0);
-                    dual_leases.remove(importance_vec[i as usize].0);
+                for i in 0..llt_size{
+                    if i == importance_vec.len() as u64{
+                        break;
+                    }
+                    //add the top llt_size most important leases to the pruned vector
+                    let reference_id = importance_vec[i as usize].0;
+                    //for key in leases.keys(){
+                    //    print!("{},",reference_id);
+                    //    println!("{}",key);
+                    //}
+
+                    pruned_leases.entry(*reference_id)
+                        .or_insert(*leases.get(reference_id).unwrap());
+
+                    if dual_leases.contains_key(reference_id){
+                        pruned_dual_leases.entry(*reference_id)
+                            .or_insert(*dual_leases.get(reference_id).unwrap());
+                    }
+                    //println!("Inserted successfully");
                 }
-            }
+            //}
         } 
+        return (pruned_leases,pruned_dual_leases);
     }
 
     //Output:
