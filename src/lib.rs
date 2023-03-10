@@ -23,15 +23,20 @@ pub mod io {
         phase_id: u16,
         start_time: u64,
     }
-    pub fn get_binned_hists(input_file:&str, num_bins: u64,set_mask:  u32) -> (super::lease_gen::BinnedRIs,super::lease_gen::BinFreqs,u64){
 
-        let mut curr_bin: u64= 0;
-        let mut curr_bin_dict=HashMap::<u64,u64>::new();
-        let mut bin_freqs=HashMap::<u64,HashMap<u64,u64>>::new();
-        let mut bin_ri_distributions=HashMap::<u64,HashMap<u64,HashMap<u64,u64>>>::new();
-        let mut curr_ri_distribution_dict=HashMap::<u64,HashMap<u64,u64>>::new();
-        let mut last_address: u64 =0;
-        let mut all_keys: Vec<u64>=Vec::new();
+    pub fn get_prl_hists(input_file: &str, 
+                         num_bins:   u64,
+                         set_mask:   u32) -> (super::lease_gen::BinnedRIs,
+                                                 super::lease_gen::BinFreqs,
+                                                 u64){
+
+        let mut curr_bin: u64 = 0;
+        let mut curr_bin_dict = HashMap::<u64,u64>::new();
+        let mut bin_freqs = HashMap::<u64,HashMap<u64,u64>>::new();
+        let mut bin_ri_distributions = HashMap::<u64,HashMap<u64,HashMap<u64,u64>>>::new();
+        let mut curr_ri_distribution_dict = HashMap::<u64,HashMap<u64,u64>>::new();
+        let mut last_address: u64 = 0;
+        let mut all_keys: Vec<u64> = Vec::new();
         
         bin_freqs.insert(0,curr_bin_dict.clone());
         bin_ri_distributions.insert(0,curr_ri_distribution_dict.clone());
@@ -99,7 +104,8 @@ pub mod io {
                 bin_freqs_temp.entry(*key).or_insert(0);
             }
         }
-        (super::lease_gen::BinnedRIs::new(bin_ri_distributions),super::lease_gen::BinFreqs::new(bin_freqs),bin_width)
+        (super::lease_gen::BinnedRIs::new(bin_ri_distributions),
+         super::lease_gen::BinFreqs::new(bin_freqs),bin_width)
     }
 
     pub fn build_phase_transitions(input_file:&str) -> (Vec<(u64,u64)>,usize,u64){
@@ -175,7 +181,10 @@ pub mod io {
     
     // Tail cost refers to the accumulation of cost from reuses greater than ri.
     // This cost may span a phase boundary 
-    pub fn build_ri_hists(input_file:&str,cshel:bool,set_mask:u32) -> (super::lease_gen::RIHists,HashMap<u64,u64>,usize,u64){
+    pub fn build_ri_hists(input_file:&str,
+                          cshel:bool,
+                          set_mask:u32) -> (super::lease_gen::RIHists,HashMap<u64,u64>,usize,u64){
+
         let (phase_transitions,first_misses,sampling_rate) = build_phase_transitions(input_file);
         let mut rdr = csv::ReaderBuilder::new()
             .has_headers(false)
@@ -274,7 +283,7 @@ pub mod io {
                 let mut ri = u64::from_str_radix(&sample.ri,16).unwrap();
                 let _reuse_time = sample.time;
                 //if sample is negative, there is no reuse 
-                 let ri_signed = ri as i32;
+                let ri_signed = ri as i32;
                 if ri_signed < 0 {
                     ri=16777215;
                 }
@@ -282,7 +291,7 @@ pub mod io {
                 let phase_id_ref = u64::from_str_radix(&sample.phase_id_ref,16).unwrap();
                 let tag = u32::from_str_radix(&sample.tag,16).unwrap();
                 let set = (tag&set_mask) as u64;
-                let set_phase_id_ref=phase_id_ref | set<<32;
+                let set_phase_id_ref = phase_id_ref | set<<32;
                 let phase_id = (phase_id_ref & 0xFF000000)>>24;
                 *samples_per_phase.entry(phase_id).or_insert(0)+=1;
                 //if the reference isn't in the distrubtion add it
@@ -442,43 +451,55 @@ pub mod io {
            }
            lease_phase.sort_by_key(|a| a.0);
            //output config
-           for j in 0..16{
-                    if j==0{
-                     file.write_all(format!("\t0x{:08x},\t// default lease\n",default_lease).as_bytes()).expect("write failed");
-                    }
-                    else if j==1{
-                      file.write_all(format!("\t0x{:08x},\t// long lease value\n",dual_lease_ref.1).as_bytes()).expect("write failed");
-                    }
-                    else if j==2{
-                        file.write_all(format!("\t0x{:08x},\t// short lease probability\n",discretize(dual_lease_ref.2,discretize_width)).as_bytes()).expect("write failed");
-                    }
-                    else if j==3{
-    file.write_all(format!("\t0x{:08x},\t// num of references in phase\n",phase_leases.len()).as_bytes()).expect("write failed");
-      
-                    }
-                    else if j==4{
-    file.write_all(format!("\t0x{:08x},\t// dual lease ref (word address)\n",dual_lease_ref.0>>2).as_bytes()).expect("write failed");
-      
-                    }
-                    else {
-    file.write_all(format!("\t0x{:08x},\t // unused\n",0).as_bytes()).expect("write failed");
-                    }
+           for j in 0..16 {
+                if j==0{
+                 file.write_all(format!("\t0x{:08x},\t// default lease\n",default_lease)
+                                .as_bytes()).expect("write failed");
+                }
+                else if j==1{
+                  file.write_all(format!("\t0x{:08x},\t// long lease value\n",dual_lease_ref.1)
+                                 .as_bytes()).expect("write failed");
+                }
+                else if j==2{
+                    file.write_all(format!("\t0x{:08x},\t// short lease probability\n",
+                                           discretize(dual_lease_ref.2,discretize_width))
+                                   .as_bytes()).expect("write failed");
+                }
+                else if j==3{
+                    file.write_all(format!("\t0x{:08x},\t// num of references in phase\n",
+                       phase_leases.len())
+                        .as_bytes()).expect("write failed");
+  
+                }
+                else if j==4{
+                    file.write_all(format!("\t0x{:08x},\t// dual lease ref (word address)\n",
+                                            dual_lease_ref.0>>2)
+                                    .as_bytes()).expect("write failed");
+  
+                }
+                else {
+                    file.write_all(format!("\t0x{:08x},\t // unused\n",0)
+                                   .as_bytes()).expect("write failed");
+                }
             }
             let field_list=["reference address","lease0 value"];
            
 
-                // loop through lease fields
+            // loop through lease fields
             for k in 0..2{
-                file.write_all(format!("\t//{}\n\t",field_list[k]).as_bytes()).expect("write failed");
+                file.write_all(format!("\t//{}\n\t",field_list[k]).as_bytes())
+                    .expect("write failed");
                 
 
                 for j in 0..llt_size{
                     if j<phase_leases.len().try_into().unwrap(){
                         if k==0 {
-                            file.write_all(format!("0x{:08x}",lease_phase[j as usize].0).as_bytes()).expect("write failed");
+                            file.write_all(format!("0x{:08x}",lease_phase[j as usize].0)
+                                           .as_bytes()).expect("write failed");
                         }
                         else {
-                            file.write_all(format!("0x{:08x}",lease_phase[j as usize].1).as_bytes()).expect("write failed");
+                            file.write_all(format!("0x{:08x}",lease_phase[j as usize].1).as_bytes())
+                                .expect("write failed");
                         }
                     }
                     else {
@@ -497,18 +518,16 @@ pub mod io {
                     else {
                         file.write_all(format!(", ").as_bytes()).expect("write failed");
                     }
-       
                 }
             }
-
         }
-      file.write_all(format!("}};").as_bytes()).expect("write failed");
+        file.write_all(format!("}};").as_bytes()).expect("write failed");
     }
 
     pub fn discretize(percentage: f64,discretization:u64)->u64{
         let percentage_binary =((percentage*((2<<(discretization-1)) as f64)-1.0)).round() as u64;
         return percentage_binary;
-    }    
+    }
     
     pub mod debug {
         pub fn print_ri_hists(rihists: &super::super::lease_gen::RIHists){

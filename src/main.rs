@@ -74,13 +74,18 @@ M. Gould <mdg2838@rit.edu>")
              .required(false)).get_matches();
     
 
-    let cache_size = matches.value_of("CACHE_SIZE").unwrap().parse::<u64>().unwrap();
-    let perl_bin_num = matches.value_of("PRL").unwrap().parse::<u64>().unwrap();
-    let llt_size = matches.value_of("LLT_SIZE").unwrap().parse::<u64>().unwrap();
-    let mem_size = matches.value_of("MEM_SIZE").unwrap().parse::<u64>().unwrap();
+    let cache_size = matches.value_of("CACHE_SIZE")
+                        .unwrap().parse::<u64>().unwrap();
+    let perl_bin_num = matches.value_of("PRL")
+                        .unwrap().parse::<u64>().unwrap();
+    let llt_size = matches.value_of("LLT_SIZE")
+                        .unwrap().parse::<u64>().unwrap();
+    let mem_size = matches.value_of("MEM_SIZE")
+                        .unwrap().parse::<u64>().unwrap();
     //get maximum number of scopes that can fit in given memory size with given llt size
     let max_scopes = mem_size/((2*llt_size + 16)*4);
-    let discretize_width = matches.value_of("DISCRETIZE_WIDTH").unwrap().parse::<u64>().unwrap();
+    let discretize_width = matches.value_of("DISCRETIZE_WIDTH").unwrap()
+                                .parse::<u64>().unwrap();
     let verbose = matches.is_present("VERBOSE");
     let debug   = matches.is_present("DEBUG");
     let cshel   = matches.is_present("CSHEL");
@@ -89,15 +94,16 @@ M. Gould <mdg2838@rit.edu>")
     let re = Regex::new(r"/(clam|shel).*/(.*?)\.txt$").unwrap();
     let search_string = matches.value_of("INPUT").unwrap().to_lowercase();
     let cap = re.captures(&*search_string).unwrap();
-    let empirical_rate = matches.value_of("EMPIRICAL_SAMPLE_RATE").unwrap().to_lowercase();
-
+    let empirical_rate = matches.value_of("EMPIRICAL_SAMPLE_RATE")
+                             .unwrap().to_lowercase();
     //if associativity not specified, set as fully associative
     let num_ways:u64;
-    let num_ways_given=matches.value_of("SET ASSOCIATIVITY").unwrap().parse::<u64>().unwrap();
+    let num_ways_given=matches.value_of("SET ASSOCIATIVITY")
+                            .unwrap().parse::<u64>().unwrap();
     if num_ways_given==0{
         num_ways=cache_size;
     }
-    else if  num_ways_given >cache_size {
+    else if num_ways_given>cache_size {
         println!("The number of ways exceeds number of blocks in cache");
         panic!();
     }
@@ -107,11 +113,14 @@ M. Gould <mdg2838@rit.edu>")
     //get mask for set bits
     let set_mask=(cache_size as f64 /num_ways as f64) as u32-1;
 
+    
+
     //generate distributions
     let (ri_hists,
          samples_per_phase,
          misses_from_first_access,
-         empirical_sample_rate) = clam::io::build_ri_hists(matches.value_of("INPUT").unwrap(),
+         empirical_sample_rate) = clam::io::build_ri_hists(matches.value_of("INPUT")
+                                                                  .unwrap(),
                                                            cshel,
                                                            set_mask);
 
@@ -124,11 +133,12 @@ M. Gould <mdg2838@rit.edu>")
         //generate bins
         let (binned_ri_distributions,
              binned_freqs,
-             bin_width) = clam::io::get_binned_hists(matches.value_of("INPUT")
+             bin_width) = clam::io::get_prl_hists(matches.value_of("INPUT")
                                                      .unwrap(),perl_bin_num,set_mask);
         //compose output file name
         //this panic here avoids the almost certain panic that will result from 
         //running PRL on multi phase sampling files
+
         if &cap[1]=="shel"{
             panic!("Error! You can only use prl on sampling files with a single phase!");
         }
@@ -150,7 +160,11 @@ M. Gould <mdg2838@rit.edu>")
                                                   debug,
                                                   set_mask).unwrap();
 
-        let (leases,dual_leases) =clam::lease_gen::prune_leases_to_fit_llt(leases,dual_leases,&ri_hists, llt_size);
+        let (leases,dual_leases) =clam::lease_gen::prune_leases_to_fit_llt(
+                                                    leases,
+                                                    dual_leases,
+                                                    &ri_hists, 
+                                                    llt_size);
 
         println!("running PRL");
 
@@ -197,7 +211,12 @@ M. Gould <mdg2838@rit.edu>")
                                                      debug,
                                                      set_mask).unwrap();
 
-    let (leases,dual_leases) =clam::lease_gen::prune_leases_to_fit_llt(leases, dual_leases, &ri_hists, llt_size);
+    let (leases,dual_leases) =clam::lease_gen::prune_leases_to_fit_llt(
+                                                    leases, 
+                                                    dual_leases, 
+                                                    &ri_hists, 
+                                                    llt_size);
+
     let lease_vectors=clam::io::dump_leases(leases,
                                             dual_leases,
                                             lease_hits,
@@ -235,7 +254,12 @@ M. Gould <mdg2838@rit.edu>")
                                                          verbose,
                                                          debug,
                                                          set_mask).unwrap();
-        let (leases,dual_leases) = clam::lease_gen::prune_leases_to_fit_llt(leases, dual_leases, &ri_hists, llt_size);
+
+        let (leases,dual_leases) = clam::lease_gen::prune_leases_to_fit_llt(
+                                                        leases, 
+                                                        dual_leases, 
+                                                        &ri_hists, 
+                                                        llt_size);
         //compose output file name
         output_file_name = format!("{}/{}_{}_{}",
                                  matches.value_of("OUTPUT").unwrap(),
