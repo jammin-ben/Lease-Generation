@@ -81,18 +81,24 @@ pub mod io {
             else {
                 curr_bin_dict.insert(addr,1);
             }
-            //if the address isn't a key in the outer level hashmap, add a hashmap corresponding to that key; then add the key value pair (ri,1) to that hashmap
-            //if the address is a key in the outer level hashmap, check to see if the current ri is a key in the corresponding inner hashmap.
+            //if the address isn't a key in the outer level hashmap, 
+            //add a hashmap corresponding to that key; then add the 
+            //key value pair (ri,1) to that hashmap
+            //
+            //if the address is a key in the outer level hashmap, 
+            //check to see if the current ri is a key in the corresponding inner hashmap.
             //if yes, then increment the count for that RI, if not, insert a new key value pair (ri,1).
-           *curr_ri_distribution_dict.entry(addr).or_insert(HashMap::new()).entry(ri).or_insert(0) += 1;
-
-           //create an array of all found references
+            *curr_ri_distribution_dict.entry(addr)
+                .or_insert(HashMap::new()).entry(ri)
+                    .or_insert(0) += 1;
+            
+            //create an array of all found references
             if !all_keys.iter().any(|&i| i==addr){
                 all_keys.push(addr);
             }
                 
         }
-       
+
         //store the frequency and RI data for the last bin
         bin_freqs.insert(curr_bin,curr_bin_dict.clone());
         bin_ri_distributions.insert(curr_bin,curr_ri_distribution_dict.clone());
@@ -195,8 +201,6 @@ pub mod io {
         let mut samples_per_phase = HashMap::new();
      
         //Don't need to calculate head or tail costs for PRL or CLAM or SHEL, 
-     
-
         if cshel {
             println!("before first pass!");
             for result in rdr.deserialize() {
@@ -554,7 +558,6 @@ pub mod io {
                         println!(" | | ri 0x{:x}: count {}",ri,count);
                     }
                 }
-
             }
         }
 
@@ -769,7 +772,13 @@ pub mod lease_gen {
         }
     }
 
-    fn cshel_phase_ref_cost(sample_rate: u64, phase: u64,ref_id: u64,old_lease: u64,new_lease: u64,ri_hists: &RIHists) -> u64 {
+    fn cshel_phase_ref_cost(sample_rate: u64, 
+                            phase: u64,
+                            ref_id: u64,
+                            old_lease: u64,
+                            new_lease: u64,
+                            ri_hists: &RIHists) -> u64 {
+
         let mut old_cost = 0;
         let mut new_cost = 0;
         //if a set in a phase does not have this reference
@@ -783,22 +792,19 @@ pub mod lease_gen {
                 Some((a,b)) => (*a,*b),
                 None        => (0,0), 
             };
-              if ri <= old_lease {
+            if ri <= old_lease {
                 old_cost += phase_head_cost;
             }
             if ri ==old_lease {
                 old_cost += phase_tail_cost;
             }
-
             if ri <= new_lease {
                 new_cost += phase_head_cost;
             }
             if ri ==new_lease {
                 new_cost += phase_tail_cost;
             }
-          
         }
-      
         (new_cost - old_cost) * sample_rate   
     }
 
@@ -827,14 +833,12 @@ pub mod lease_gen {
             else {
                 old_cost += *count * old_lease;
             }
-
             if *ri <= new_lease {
                 new_cost += *count * *ri;
             }
             else {
                 new_cost += *count * new_lease;
             }
-            
         }
         (new_cost - old_cost ) * sample_rate
     }
@@ -905,7 +909,11 @@ pub mod lease_gen {
                 samples_per_phase : &HashMap<u64,u64>,
                 verbose: bool,
                 debug: bool,
-                set_mask : u32)-> Option<(HashMap<u64,u64>,HashMap<u64,(f64,u64)>,HashMap<u64,HashMap<u64,u64>>,u64)>{
+                set_mask : u32)-> Option<(HashMap<u64,u64>,
+                                          HashMap<u64,(f64,u64)>,
+                                            HashMap<u64,
+                                                HashMap<u64,u64>>,
+                                          u64)>{
         let mut new_lease: PPUC;
         let mut dual_leases : HashMap<u64,(f64,u64)>= HashMap::new(); //{ref_id, (alpha, long_lease)}
         let mut trace_length : u64=0;
@@ -929,34 +937,34 @@ pub mod lease_gen {
 
         if verbose {
             println!("---------Dump Binned RI Hists------------");
-             super::io::debug::print_binned_hists(&binned_ris);
+            super::io::debug::print_binned_hists(&binned_ris);
             println!("---------Dump Reference Frequency per bin---");
             println!("{:?}",&binned_freqs);
-         }
+        }
         
 
         if verbose{
-        println!("bin_width:  {}",bin_width);
-         }
-       for key in binned_freqs.bin_freqs.keys(){
+            println!("bin_width:  {}",bin_width);
+        }
+        for key in binned_freqs.bin_freqs.keys(){
             bin_endpoints.push(*key);
-       }
-       //each bin will have all addresses although freq may be 0
-       let mut addrs:Vec<u64>=Vec::new();
-       for key in binned_freqs.bin_freqs.get(&0).unwrap().keys(){
+        }
+        //each bin will have all addresses although freq may be 0
+        let mut addrs:Vec<u64>=Vec::new();
+        for key in binned_freqs.bin_freqs.get(&0).unwrap().keys(){
             addrs.push(*key);
-       }
+        }
      
 
         for endpoint in bin_endpoints.iter(){
             for set in 0..num_sets{
-            bin_saturation.entry(*endpoint).or_insert(HashMap::new()).entry(set).or_insert(0.0);
+                bin_saturation.entry(*endpoint).or_insert(HashMap::new()).entry(set).or_insert(0.0);
             }
         }
         //make all references have lease of 1
         for addr in addrs{
             leases.insert(addr&0x00FFFFFF,1);
-           // update saturation to take into account each reference having a lease of 1
+            // update saturation to take into account each reference having a lease of 1
             for (bin,_sat) in bin_saturation.clone(){
                 for set in 0..num_sets{
                     if  binned_ris.bin_ri_distribution.get(&bin).unwrap().contains_key(&addr){
@@ -966,13 +974,12 @@ pub mod lease_gen {
                         let bin_saturation_set=bin_saturation.get_mut(&bin).unwrap();
                         bin_saturation_set.insert(set,bin_saturation_set.get(&set).unwrap()+impact);
                     }
-                     //init impact dict for later
-                        impact_dict.entry(bin).or_insert(HashMap::new()).entry(set).or_insert(0.0);
+                    //init impact dict for later
+                    impact_dict.entry(bin).or_insert(HashMap::new()).entry(set).or_insert(0.0);
                 }
             }
-       }
-        
-       
+        }
+
         for (_phase,&num) in samples_per_phase.iter(){
             trace_length += num * sample_rate;
         }
@@ -983,11 +990,11 @@ pub mod lease_gen {
                 ppuc_tree.push(*ppuc);
             }
         }
-       // get lease hits assuming a base lease of 0
+        // get lease hits assuming a base lease of 0
         for _r in ppuc_tree.clone(){
             let lease= ppuc_tree.pop().unwrap();
             lease_hits.entry(lease.ref_id).or_insert(HashMap::new()).entry(lease.lease).or_insert(lease.new_hits);
-      }
+        }
         //reinitallize ppuc tree, assuming a base lease of 1
         for (&ref_id, ri_hist) in ri_hists.ri_hists.iter(){
             let ppuc_vec = get_ppuc(ref_id,1,ri_hist);
@@ -995,15 +1002,14 @@ pub mod lease_gen {
                 ppuc_tree.push(*ppuc);
             }
         }
-        
-    
+
         loop {
-             new_lease = match ppuc_tree.pop(){
+            new_lease = match ppuc_tree.pop(){
                 Some(i) => i,
                 None => return Some((leases,dual_leases, lease_hits,trace_length)),
             };
            
-             //continue to pop until we have a ppuc with the right base_lease
+            //continue to pop until we have a ppuc with the right base_lease
             if new_lease.old_lease != *leases.get(&(new_lease.ref_id&0xFFFFFFFF)).unwrap(){
                 continue;
             }
@@ -1014,38 +1020,42 @@ pub mod lease_gen {
             neg_impact=false;
             num_unsuitable=0;
             let addr= new_lease.ref_id;
-           for (bin,bin_sat_set) in &bin_saturation{
-            for (set,_sat) in bin_sat_set{
-                let mut impact:f64 =0.0;
-                let set_addr=(addr&0xFFFFFFFF)|(set<<32);
-                if  binned_ris.bin_ri_distribution.get(&bin).unwrap().contains_key(&set_addr){
-                    let  old_avg_lease=get_avg_lease(binned_ris,&set_addr,*bin,*leases.get(&(addr&0xFFFFFFFF)).unwrap());
-                    let avg_lease =get_avg_lease(binned_ris,&set_addr,*bin,new_lease.lease);
-                    impact= (avg_lease as f64-old_avg_lease as f64)*&(sample_rate as f64);
-                    //don't assign leases that decrease bin saturation
-                    neg_impact = if impact>=0.0 {false} else {true};
-                    impact_dict.get_mut(&bin).unwrap().insert(*set,impact as f64);
-                }
-                else{
-                    impact_dict.get_mut(&bin).unwrap().insert(*set,0 as f64);
-                }
+            for (bin,bin_sat_set) in &bin_saturation{
+                for (set,_sat) in bin_sat_set{
+                    let mut impact:f64 =0.0;
+                    let set_addr=(addr&0xFFFFFFFF)|(set<<32);
+                    if  binned_ris.bin_ri_distribution.get(&bin).unwrap().contains_key(&set_addr){
+                        let  old_avg_lease=get_avg_lease(binned_ris,&set_addr,*bin,*leases.get(&(addr&0xFFFFFFFF)).unwrap());
+                        let avg_lease =get_avg_lease(binned_ris,&set_addr,*bin,new_lease.lease);
+                        impact= (avg_lease as f64-old_avg_lease as f64)*&(sample_rate as f64);
+                        //don't assign leases that decrease bin saturation
+                        neg_impact = if impact>=0.0 {false} else {true};
+                        impact_dict.get_mut(&bin).unwrap().insert(*set,impact as f64);
+                    }
+                    else{
+                        impact_dict.get_mut(&bin).unwrap().insert(*set,0 as f64);
+                    }
 
-                if (bin_saturation.get(&bin).unwrap().get(&set).unwrap()+impact)>bin_target as f64{
-                   
-                    num_unsuitable+=1;
+                    if (bin_saturation.get(&bin).unwrap().get(&set).unwrap()+impact)>bin_target as f64{
+                       
+                        num_unsuitable+=1;
+                    }
                 }
             }
-        }
             for (bin,sat_set) in &bin_saturation.clone(){
                 for (set,sat) in sat_set{
                     if verbose && debug {
-                        println!("bin: {} set: {} current capacity: {:.7} impact: {:.7}", bin/bin_width, set, sat/bin_width as f64,impact_dict.get(bin).unwrap().get(set).unwrap()/bin_width as f64); 
+                        println!("bin: {} set: {} current capacity: {:.7} impact: {:.7}", 
+                                 bin/bin_width, 
+                                 set, 
+                                 sat/bin_width as f64,
+                                 impact_dict.get(bin).unwrap().get(set).unwrap()/bin_width as f64); 
                     }
                 }
-             }
-             if verbose{
+            }
+            if verbose{
                 println!("addr:{:x} ri:{:x}",addr&0xFFFFFFFF,new_lease.lease);
-             }
+            }
             
             //skip lease, if it makes it worse
            
@@ -1065,20 +1075,23 @@ pub mod lease_gen {
                 for ppuc in ppuc_vec.iter(){
                     ppuc_tree.push(*ppuc);
                 }
-                 let mut print_string:String=String::new();
+                let mut print_string:String=String::new();
                 for (bin,sat_set) in &bin_saturation.clone(){
                     for (set,sat) in sat_set{ 
                         let set_addr=(addr&0xFFFFFFFF)|(set<<32);
-                     if  binned_ris.bin_ri_distribution.get(bin).unwrap().contains_key(&set_addr){
-                        bin_saturation.get_mut(bin).unwrap().insert(*set,sat+impact_dict.get(bin).unwrap().get(set).unwrap());
+                    if  binned_ris.bin_ri_distribution.get(bin).unwrap().contains_key(&set_addr){
+                        bin_saturation.get_mut(bin).unwrap().insert(*set,sat+impact_dict.get(bin)
+                                                                    .unwrap().get(set).unwrap());
                     }
-                    print_string=format!("{:} {1:.7}",print_string,&(bin_saturation.get(bin).unwrap().get(set).unwrap()/bin_width as f64));
-                   }
+                    print_string=format!("{:} {1:.7}",
+                                        print_string,
+                                        &(bin_saturation.get(bin).unwrap().get(set).unwrap()/bin_width as f64));
+                    }
                 }
                 if verbose{
-                  println!("assigning lease: {:x} to reference {:x}",new_lease.lease, addr);
-                 println!("Average cache occupancy per bin: [{}]",print_string);
-             }
+                    println!("assigning lease: {:x} to reference {:x}",new_lease.lease, addr);
+                    println!("Average cache occupancy per bin: [{}]",print_string);
+                }
             }
             else {
                 num_full_bins=0;
@@ -1098,10 +1111,9 @@ pub mod lease_gen {
                                     alpha=set_alpha;
                                 }
                             }
-                          
                         }
                     }
-                      bin_ranks.insert(*bin,alpha);
+                    bin_ranks.insert(*bin,alpha);
                 }
                 for (num,key_val_pair) in bin_ranks.iter().enumerate(){
                     if sorted_bins.get_mut(num)==None{
@@ -1116,25 +1128,33 @@ pub mod lease_gen {
                
                 if acceptable_ratio>min_alpha{
                     dual_leases.insert(addr,(acceptable_ratio as f64,new_lease.lease));
-                        let mut print_string:String=String::new();
+                    let mut print_string:String=String::new();
 
                     for (bin,sat_set) in &bin_saturation.clone(){
                         for (set,sat) in sat_set{ 
                             let set_addr=(addr&0xFFFFFFFF)|(set<<32);
-                            if  binned_ris.bin_ri_distribution.get(bin).unwrap().contains_key(&set_addr){
-                              bin_saturation.get_mut(bin).unwrap().insert(*set,sat+impact_dict.get(bin).unwrap().get(set).unwrap()*acceptable_ratio);
-                             }
-                            print_string=format!("{:} {1:.7}",print_string,&(bin_saturation.get(bin).unwrap().get(set).unwrap()/bin_width as f64));
+                            if binned_ris.bin_ri_distribution.get(bin).unwrap().contains_key(&set_addr){
+                                bin_saturation.get_mut(bin).unwrap()
+                                    .insert(*set,
+                                            sat+impact_dict.get(bin).unwrap()
+                                                .get(set).unwrap()*acceptable_ratio);
+                            }
+                            print_string=format!("{:} {1:.7}",
+                                                 print_string,
+                                                 &(bin_saturation.get(bin).unwrap().get(set).unwrap()/bin_width as f64));
                         }
                     }
                     if verbose{
-                            println!("Assigning dual lease {} to address {} with percentage: {}",new_lease.lease,addr,acceptable_ratio);
-                            println!("Average cache occupancy per bin: [{}]",print_string);
-                        }
+                        println!("Assigning dual lease {} to address {} with percentage: {}",
+                                 new_lease.lease,
+                                 addr,
+                                 acceptable_ratio);
+
+                        println!("Average cache occupancy per bin: [{}]",print_string);
                     }
                 }
             }
-
+        }
     }
 
     pub fn get_num_leases_per_phase(leases: &HashMap<u64,u64>) -> HashMap<u64,u64> {
