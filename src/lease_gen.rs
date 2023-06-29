@@ -33,8 +33,8 @@ impl BinnedRIs {
 }
 
 pub trait RIHistsData {
-    fn add_sample(reference: Ref, ri: ReuseInterval, phase: Option<PhaseId>, time: u64);
-    fn get_reference_ri_count(reference: Ref, ri: ReuseInterval) -> u64;
+    fn add_sample(&self, ref_id: Ref, ri: ReuseInterval, phase_id: Option<PhaseId>, time: u64);
+    fn get_reference_ri_count(&self, ref_id: Ref, ri: ReuseInterval) -> Option<u64>;
 }
 
 pub struct Cost {
@@ -43,27 +43,52 @@ pub struct Cost {
 }
 
 pub struct RIHists {
-    pub histograms: HashMap<ReuseInterval, HashMap<Count, Option<Cost>>>,
+    histograms: HashMap<ReuseInterval, (Count, Option<Cost>)>,
 }
 
 pub struct ReferenceRIHists {
-    pub histograms: HashMap<Ref, RIHists>,
+    histograms: HashMap<Ref, RIHists>,
 }
 
 pub struct PhasedReferenceRIHists {
-    pub histograms: HashMap<PhaseId, ReferenceRIHists>,
+    histograms: HashMap<PhaseId, ReferenceRIHists>,
 }
 
 impl RIHists {
-    pub fn new(ri_hists: HashMap<ReuseInterval, HashMap<Count, Option<Cost>>>) -> Self {
+    pub fn new(ri_hists: HashMap<ReuseInterval, (Count, Option<Cost>)>) -> Self {
         RIHists {
             histograms: ri_hists,
         }
     }
 
-    pub fn get_ref_hist(&self, ref_id: u64) -> Option<&HashMap<Count, Option<Cost>>> {
-        self.histograms.get(&ref_id)
+    // pub fn get_ref_hist(&self, ref_id: u64) -> Option<&HashMap<Count, Option<Cost>>> {
+    //     self.histograms.get(&ref_id)
+    // }
+}
+
+impl RIHistsData for ReferenceRIHists {
+    fn add_sample(&self, ref_id: Ref, ri: ReuseInterval, phase_id: Option<PhaseId>, time: u64) {
+        todo!()
     }
+
+    fn get_reference_ri_count(&self, ref_id: Ref, ri: ReuseInterval) -> Option<Count> {
+        Some(self.histograms.get(&ref_id)?.histograms.get(&ri)?.0)
+    }
+}
+
+impl PhasedReferenceRIHists {
+    pub fn get_phase_reference_ri_hists(&self, phase_id: PhaseId) -> Option<&ReferenceRIHists> {
+        self.histograms.get(&phase_id)
+    }
+
+    pub fn get_phase_reference_ri_count(&self, phase_id: PhaseId, ref_id: Ref, ri: ReuseInterval) -> Option<u64> {
+        self.get_phase_reference_ri_hists(phase_id)?.get_reference_ri_count(ref_id, ri)
+    }
+
+    pub fn get_phase_reference_ri_costs(&self, phase_id: PhaseId, ref_id: Ref, ri: ReuseInterval) -> Option<Cost> {
+        self.get_phase_reference_ri_hists(phase_id)?.histograms.get(&ref_id)?.histograms.get(&ri)?.1
+    }
+    
 }
 
 #[derive(Debug, Copy, Clone)]
